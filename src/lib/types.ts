@@ -17,7 +17,7 @@ export interface QuantType {
 }
 
 export interface ProductNetValue {
-    net_value_id: number;
+    id: number;
     product: number;
     product_name: string;
     net_value_date: string; // 日期格式：YYYY-MM-DD

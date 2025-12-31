@@ -41,7 +41,7 @@ export default function NetValueTable({ netValues, loading }: NetValueTableProps
                 </thead>
                 <tbody>
                 {netValues.map((item) => (
-                    <tr key={item.net_value_id} className="bg-white border-b hover:bg-gray-50">
+                    <tr key={item.id} className="bg-white border-b hover:bg-gray-50">
                         <td className="px-4 py-3 font-medium">{formatDate(item.net_value_date)}</td>
                         <td className="px-4 py-3">{item.net_value.toFixed(4)}</td>
                         <td className="px-4 py-3">{item.data_source || '未知'}</td>

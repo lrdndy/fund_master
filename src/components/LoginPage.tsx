@@ -4,6 +4,12 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { authApi } from '@/lib/api';
 
+// 补充：定义用户信息接口（规范数据类型，避免any）
+interface UserInfo {
+    is_admin: boolean;
+    username: string;
+}
+
 export default function LoginPage() {
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
@@ -28,9 +34,14 @@ export default function LoginPage() {
             // 2. 解决 TS2339: 没有 login 方法 → 改用 api.ts 中定义的 getToken 方法
             const { token } = await authApi.getToken(username, password);
 
-            // 存储 Token（与之前的 API 封装保持一致：fundAdminToken）
+            // ---------------- 核心修改1：新增「获取用户信息（是否管理员）」 ----------------
+            const userInfo = await fetchUserInfo(token); // 调用封装的用户信息请求方法
+
+            // ---------------- 核心修改2：存储 Token + 用户名 + 管理员标识（完整权限信息） ----------------
             localStorage.setItem('fundAdminToken', token);
             localStorage.setItem('username', username);
+            // 关键：将布尔值 is_admin 转为字符串存储（localStorage仅支持字符串）
+            localStorage.setItem('fundIsAdmin', String(userInfo.is_admin));
 
             // 跳转到主页
             router.push('/');
@@ -60,6 +71,29 @@ export default function LoginPage() {
             setError(errMsg);
         } finally {
             setLoading(false);
+        }
+    };
+
+    // ---------------- 核心修改3：封装「获取用户信息」方法（复用+合规） ----------------
+    const fetchUserInfo = async (token: string): Promise<UserInfo> => {
+        try {
+            const response = await fetch('http://127.0.0.1:8000/api/user/info/', {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Token ${token}`, // 携带token认证，后端识别当前用户
+                    'Content-Type': 'application/json',
+                },
+            });
+
+            // 处理接口请求失败（非200状态码）
+            if (!response.ok) {
+                throw new Error(`获取用户信息失败（状态码：${response.status}）`);
+            }
+
+            const data = await response.json() as UserInfo; // 类型断言，规范返回数据
+            return data;
+        } catch (err) {
+            throw new Error('获取用户权限信息失败，请联系管理员');
         }
     };
 
