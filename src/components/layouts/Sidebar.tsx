@@ -12,6 +12,7 @@ export default function Sidebar() {
         { label: '添加产品', path: '/products/new', icon: '➕' },
         { label: '净值管理', path: '/net-values', icon: '📈' },
         { label: '相关性看板', path: '/correlation', icon: '🔗' },
+        { label: '标签页管理', path: '/admin/tags', icon: '🧰' },
     ];
 
     return (

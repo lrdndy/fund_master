@@ -33,7 +33,7 @@ export default function Navbar({ className = '' }: NavbarProps) {
         <div className="flex w-full items-center justify-between">
             {/* Logo（和Sidebar选中态统一主题色） */}
             <div>
-                <h1 className="text-xl font-bold text-blue-800">母基金管理系统</h1>
+                <h1 className="text-xl font-bold text-blue-800">母基金管理🦖</h1>
             </div>
 
             {/* 用户区域（样式简洁，和整体风格统一） */}

@@ -11,7 +11,7 @@ export default function ProductList({ products }: ProductListProps) {
     const handleViewDetail = (productId: number) => {
         router.push(`/products/${productId}`);
     };
-
+    console.log(products);
     // 辅助函数：将 score 转换为数字（处理字符串/undefined 情况）
     const formatScore = (score: number | string | undefined | null): string => {
         if (!score) return '0.00'; // 空值默认显示 0.00

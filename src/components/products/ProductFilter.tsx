@@ -97,7 +97,7 @@ export default function ProductFilter({ tags, filters, onFilterChange }: Product
                         <option value="">全部</option>
                         {tags.algorithms.map((alg) => (
                             <option key={alg.id} value={alg.id.toString()}>
-                                {alg.algorithm_name}
+                                {alg.alg_name}
                             </option>
                         ))}
                     </select>

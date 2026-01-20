@@ -15,6 +15,18 @@ export interface QuantType {
     create_time?: string;
     update_time?: string;
 }
+export interface ProductCorrelation {
+    id: number;
+    product1: number;
+    product1_name: string;
+    product2: number;
+    product2_name: string;
+    start_date: string;
+    end_date: string;
+    correlation_coefficient: number;
+    calculation_time: string;
+    is_valid: boolean;
+}
 
 export interface ProductNetValue {
     id: number;
@@ -36,8 +48,8 @@ export interface NetValueApiResponse<T> {
 
 export interface AlgorithmType {
     id: number; // 替代 alg_id
-    algorithm_name: string; // 按后端实际字段名（如果后端是 algorithm_name 则用这个，若为 alg_name 则对应修改）
-    algorithm_desc: string;
+    alg_name: string; // 按后端实际字段名（如果后端是 algorithm_name 则用这个，若为 alg_name 则对应修改）
+    alg_desc: string;
     create_time?: string;
     update_time?: string;
 }

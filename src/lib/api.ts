@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { ApiResponse, CycleTag, Product, ProductFormData, QuantType, AlgorithmType, StrategyType, ProductNetValue } from './types';
+import { ApiResponse, CycleTag, Product, ProductFormData, QuantType, AlgorithmType, StrategyType, ProductNetValue, ProductCorrelation } from './types';
 
 // 创建 axios 实例
 const api = axios.create({
@@ -90,6 +90,10 @@ export const productApi = {
         });
         return response.data;
     },
+    updateProduct: async (id: number, data: Partial<Product>): Promise<Product> => {
+        const response = await api.patch<Product>(`/products/${id}/`, data);
+        return response.data;
+    },
 
     exportNetValueCsv: async (
         productId: number,
@@ -159,12 +163,58 @@ export const tagApi = {
     },
     getAlgorithms: async (): Promise<ApiResponse<AlgorithmType>> => {
         const response = await api.get<ApiResponse<AlgorithmType>>('/algorithms/');
+        console.log(response.data);
         return response.data;
     },
     getStrategies: async (): Promise<ApiResponse<StrategyType>> => {
         const response = await api.get<ApiResponse<StrategyType>>('/strategies/');
         return response.data;
     },
+    createCycle: async (data: Partial<CycleTag>): Promise<CycleTag> => {
+        const response = await api.post<CycleTag>('/cycle-tags/', data);
+        return response.data;
+    },
+    updateCycle: async (id: number, data: Partial<CycleTag>): Promise<CycleTag> => {
+        const response = await api.patch<CycleTag>(`/cycle-tags/${id}/`, data);
+        return response.data;
+    },
+    deleteCycle: async (id: number): Promise<void> => {
+        await api.delete(`/cycle-tags/${id}/`);
+    },
+    createQuantType: async (data: Partial<QuantType>): Promise<QuantType> => {
+        const response = await api.post<QuantType>('/quant-types/', data);
+        return response.data;
+    },
+    updateQuantType: async (id: number, data: Partial<QuantType>): Promise<QuantType> => {
+        const response = await api.patch<QuantType>(`/quant-types/${id}/`, data);
+        return response.data;
+    },
+    deleteQuantType: async (id: number): Promise<void> => {
+        await api.delete(`/quant-types/${id}/`);
+    },
+    createAlgorithm: async (data: Partial<AlgorithmType>): Promise<AlgorithmType> => {
+        const response = await api.post<AlgorithmType>('/algorithms/', data);
+        return response.data;
+    },
+    updateAlgorithm: async (id: number, data: Partial<AlgorithmType>): Promise<AlgorithmType> => {
+        const response = await api.patch<AlgorithmType>(`/algorithms/${id}/`, data);
+        return response.data;
+    },
+    deleteAlgorithm: async (id: number): Promise<void> => {
+        await api.delete(`/algorithms/${id}/`);
+    },
+    createStrategy: async (data: Partial<StrategyType>): Promise<StrategyType> => {
+        const response = await api.post<StrategyType>('/strategies/', data);
+        return response.data;
+    },
+    updateStrategy: async (id: number, data: Partial<StrategyType>): Promise<StrategyType> => {
+        const response = await api.patch<StrategyType>(`/strategies/${id}/`, data);
+        return response.data;
+    },
+    deleteStrategy: async (id: number): Promise<void> => {
+        await api.delete(`/strategies/${id}/`);
+    },
+
 };
 
 export const authApi = {
@@ -208,7 +258,21 @@ interface SingleNetValueRequest {
     data_source?: string;
     is_valid?: boolean;
 }
-
+export const correlationApi = {
+    /** 根据产品ID列表，查询它们之间的相关性数据 */
+    getCorrelationsByProducts: async (productIds: number[]): Promise<ApiResponse<ProductCorrelation>> => {
+        if (productIds.length < 2) {
+            throw new Error("至少选择2个产品才能计算相关性");
+        }
+        const params = {
+            product1__in: productIds.join(','), // 筛选product1在选中列表中
+            product2__in: productIds.join(','), // 筛选product2在选中列表中
+            is_valid: true
+        };
+        const response = await api.get<ApiResponse<ProductCorrelation>>('/correlations/', { params });
+        return response.data;
+    }
+};
 // netValueApi（简化 headers 配置，移除无用的 headers: {}）
 export const netValueApi = {
     importNetValueCsv: async (
@@ -318,6 +382,7 @@ export const netValueApi = {
         }
     }
 };
+
 
 
 export default api;

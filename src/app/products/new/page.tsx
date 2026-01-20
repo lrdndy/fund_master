@@ -209,8 +209,8 @@ export default function NewProductPage() {
                             >
                                 <option value="">请选择</option>
                                 {tags.algorithms.map((alg) => (
-                                    <option key={alg.id} value={alg.algorithm_name ?? ''}>
-                                        {alg.algorithm_name}
+                                    <option key={alg.id} value={alg.alg_name ?? ''}>
+                                        {alg.alg_name}
                                     </option>
                                 ))}
                             </select>
