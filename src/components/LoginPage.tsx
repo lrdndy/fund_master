@@ -77,7 +77,7 @@ export default function LoginPage() {
     // ---------------- 核心修改3：封装「获取用户信息」方法（复用+合规） ----------------
     const fetchUserInfo = async (token: string): Promise<UserInfo> => {
         try {
-            const response = await fetch('http://127.0.0.1:8000/api/user/info/', {
+            const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/user/info/`, {
                 method: 'GET',
                 headers: {
                     'Authorization': `Token ${token}`, // 携带token认证，后端识别当前用户
