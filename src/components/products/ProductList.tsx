@@ -25,6 +25,7 @@ export default function ProductList({ products }: ProductListProps) {
                 <thead className="text-xs text-gray-dark uppercase bg-gray-light">
                 <tr>
                     <th className="px-6 py-3 rounded-l-lg">产品名称</th>
+                    <th className="px-6 py-3">产品代码</th>
                     <th className="px-6 py-3">周期标签</th>
                     <th className="px-6 py-3">量化类型</th>
                     <th className="px-6 py-3">算法类型</th>
@@ -41,6 +42,7 @@ export default function ProductList({ products }: ProductListProps) {
                         onClick={() => handleViewDetail(product.id)}
                     >
                         <td className="px-6 py-4 font-medium">{product.product_name}</td>
+                        <td className="px-6 py-4">{product.product_code}</td>
                         <td className="px-6 py-4">{product.cycle_name}</td>
                         <td className="px-6 py-4">{product.quant_type_name}</td>
                         <td className="px-6 py-4">{product.algorithm_name}</td>

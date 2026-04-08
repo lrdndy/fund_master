@@ -8,7 +8,7 @@ import Sidebar from '@/components/layouts/Sidebar';
 const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
-    title: '母基金管理系统',
+    title: 'China Pro Hedgies',
     description: '产品净值管理与相关性分析平台',
 };
 

@@ -2,12 +2,12 @@
 import { useEffect, useRef, useState } from 'react';
 import * as echarts from 'echarts';
 import type { EChartOption } from 'echarts';
-import type { CSSProperties, ChangeEvent } from 'react';
+import type { CSSProperties } from 'react';
 import { productApi } from '@/lib/api';
 import useProductTags from '@/hooks/useProductTags';
-import type { Product, ProductNetValue, ApiResponse, ProductFilterParams } from '@/lib/types';
+import type { Product, ProductNetValue, ApiResponse, NetValueApiResponse, ProductFilterParams } from '@/lib/types';
 
-// ====================== 1. 类型扩展与定义（无修改） ======================
+// ====================== 1. 类型扩展与定义 ======================
 declare module 'echarts' {
     interface EChartOption {
         noDataLoadingOption?: {
@@ -21,7 +21,7 @@ declare module 'echarts' {
 }
 
 interface ValidNetValue {
-    date: string; // 这里的 date 是字符串属性，属于 ValidNetValue 对象
+    date: string;
     value: number;
 }
 
@@ -32,7 +32,7 @@ interface ChartProductData {
     netValues: ValidNetValue[];
 }
 
-// ====================== 2. 工具函数（无修改） ======================
+// ====================== 2. 工具函数 ======================
 const formatDate = (rawDate: string): string => {
     try {
         const date = new Date(rawDate);
@@ -67,7 +67,7 @@ const getSeriesStyle = (isBenchmark: boolean, index: number) => {
     return isBenchmark ? benchmarkStyle : compareStyles[index % compareStyles.length];
 };
 
-// ====================== 3. 样式配置（无修改，保留框架高度） ======================
+// ====================== 3. 样式配置 ======================
 const STYLES: Record<string, CSSProperties> = {
     container: { padding: '16px', marginBottom: '24px', backgroundColor: '#f9fafb', minHeight: '100vh' },
     title: { fontSize: '24px', fontWeight: '600', color: '#1f2937', marginBottom: '24px' },
@@ -102,9 +102,15 @@ const STYLES: Record<string, CSSProperties> = {
     emptyText: { fontSize: '14px', color: '#9ca3af', textAlign: 'center', marginTop: '8px' },
 };
 
-// ====================== 4. 核心组件（修复类型错误） ======================
+// ====================== 4. 核心组件 ======================
 export default function NetValuesManagementPage() {
-    // 核心状态（拆分错误状态，避免混淆）
+    // 本地存储常量
+    const STORAGE_KEYS = {
+        BENCHMARK_ID: 'selected_benchmark_id',
+        COMPARE_IDS: 'selected_compare_ids'
+    };
+
+    // 核心状态
     const [allProducts, setAllProducts] = useState<Product[]>([]);
     const [filteredProducts, setFilteredProducts] = useState<Product[]>([]);
     const [selectedBenchmark, setSelectedBenchmark] = useState<Product | null>(null);
@@ -112,8 +118,8 @@ export default function NetValuesManagementPage() {
     const [chartProductList, setChartProductList] = useState<ChartProductData[]>([]);
     const [loading, setLoading] = useState<boolean>(true);
     const [chartLoading, setChartLoading] = useState(false);
-    const [productError, setProductError] = useState<string | null>(null); // 产品加载错误
-    const [chartError, setChartError] = useState<string | null>(null);     // 净值数据错误
+    const [productError, setProductError] = useState<string | null>(null);
+    const [chartError, setChartError] = useState<string | null>(null);
     const [legendVisible, setLegendVisible] = useState<boolean>(false);
     const [filters, setFilters] = useState<ProductFilterParams>({
         search: '',
@@ -128,7 +134,7 @@ export default function NetValuesManagementPage() {
     const echartsInstance = useRef<echarts.ECharts | null>(null);
     const debouncedResize = useRef<() => void>(() => {});
 
-    // ====================== 5. 初始化 ECharts（无修改） ======================
+    // ====================== 5. 初始化 ECharts ======================
     useEffect(() => {
         let retryCount = 0;
         const maxRetries = 3;
@@ -160,9 +166,52 @@ export default function NetValuesManagementPage() {
         };
     }, []);
 
-    // ====================== 6. 加载产品数据（无修改） ======================
+    // ====================== 首次加载：从本地恢复选中产品 ======================
     useEffect(() => {
-        const loadProducts = async () => {
+        const initSelectedProducts = async () => {
+            try {
+                const res: ApiResponse<Product> = await productApi.getProducts({});
+                const products = res.results || [];
+                setAllProducts(products);
+                setFilteredProducts(products);
+
+                if (products.length === 0) return;
+
+                const savedBenchId = localStorage.getItem(STORAGE_KEYS.BENCHMARK_ID);
+                const savedCompareIds = localStorage.getItem(STORAGE_KEYS.COMPARE_IDS);
+
+                let bench: Product | null = null;
+                let compares: Product[] = [];
+
+                if (savedBenchId) {
+                    const id = Number(savedBenchId);
+                    bench = products.find(p => p.id === id) || null;
+                }
+                if (savedCompareIds) {
+                    try {
+                        const ids = JSON.parse(savedCompareIds) as number[];
+                        compares = products.filter(p => ids.includes(p.id));
+                    } catch {}
+                }
+
+                if (!bench) {
+                    bench = products[0];
+                    compares = products.slice(1, 3);
+                }
+
+                setSelectedBenchmark(bench);
+                setSelectedCompares(compares);
+            } catch (err) {
+                setProductError('产品初始化失败');
+            }
+        };
+
+        initSelectedProducts();
+    }, []);
+
+    // ====================== 筛选/搜索：只更新列表 ======================
+    useEffect(() => {
+        const filterProducts = async () => {
             setLoading(true);
             try {
                 const params: Record<string, string> = {};
@@ -174,28 +223,31 @@ export default function NetValuesManagementPage() {
 
                 const res: ApiResponse<Product> = await productApi.getProducts(params);
                 const products = res.results || [];
-                setAllProducts(products);
                 setFilteredProducts(products);
-
-                if (products.length > 0 && !selectedBenchmark) {
-                    setSelectedBenchmark(products[0]);
-                    setSelectedCompares(products.slice(1, 3));
-                }
                 setProductError(null);
             } catch (err) {
-                setProductError('产品加载失败，请刷新');
-                setAllProducts([]);
-                setFilteredProducts([]);
+                setProductError('筛选失败');
             } finally {
                 setLoading(false);
             }
         };
 
-        const timer = setTimeout(loadProducts, 300);
+        const timer = setTimeout(filterProducts, 300);
         return () => clearTimeout(timer);
     }, [filters]);
 
-    // ====================== 7. 加载净值数据（无修改） ======================
+    // ====================== 持久化保存：手动修改后自动存本地 ======================
+    useEffect(() => {
+        if (selectedBenchmark) {
+            localStorage.setItem(STORAGE_KEYS.BENCHMARK_ID, selectedBenchmark.id.toString());
+        } else {
+            localStorage.removeItem(STORAGE_KEYS.BENCHMARK_ID);
+        }
+        const compareIds = selectedCompares.map(p => p.id);
+        localStorage.setItem(STORAGE_KEYS.COMPARE_IDS, JSON.stringify(compareIds));
+    }, [selectedBenchmark, selectedCompares]);
+
+    // ====================== 加载【累计单位净值】数据（核心修改） ======================
     useEffect(() => {
         if (!selectedBenchmark && selectedCompares.length === 0) {
             setChartProductList([]);
@@ -207,16 +259,17 @@ export default function NetValuesManagementPage() {
                 setChartLoading(true);
                 const chartDataList: ChartProductData[] = [];
 
-                // 处理基准产品
+                // 基准产品：加载累计单位净值
                 if (selectedBenchmark) {
-                    const res: ApiResponse<ProductNetValue> = await productApi.getNetValuesByProductId(selectedBenchmark.id);
-                    const validNetValues = res.results?.filter(item => {
-                        const val = Number(item.net_value);
+                    const res: NetValueApiResponse<ProductNetValue> = await productApi.getNetValuesByProductId(selectedBenchmark.id);
+                    // 🔥 核心修改：使用 cumulative_unit_net_value（累计单位净值）
+                    const validNetValues = res.results?.filter((item: ProductNetValue) => {
+                        const val = Number(item.cumulative_unit_net_value);
                         return !!item.net_value_date && !isNaN(val) && val >= 0;
-                    }).map(item => ({
-                        date: item.net_value_date.trim(), // 这里的 date 是 ValidNetValue 对象的属性
-                        value: Number(item.net_value),
-                    })).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()) || [];
+                    }).map((item: ProductNetValue) => ({
+                        date: item.net_value_date.trim(),
+                        value: Number(item.cumulative_unit_net_value),
+                    })).sort((a: ValidNetValue, b: ValidNetValue) => new Date(a.date).getTime() - new Date(b.date).getTime()) || [];
 
                     if (validNetValues.length > 0) {
                         chartDataList.push({
@@ -228,16 +281,17 @@ export default function NetValuesManagementPage() {
                     }
                 }
 
-                // 处理对比产品
+                // 对比产品：加载累计单位净值
                 for (const product of selectedCompares) {
-                    const res: ApiResponse<ProductNetValue> = await productApi.getNetValuesByProductId(product.id);
-                    const validNetValues = res.results?.filter(item => {
-                        const val = Number(item.net_value);
+                    const res: NetValueApiResponse<ProductNetValue> = await productApi.getNetValuesByProductId(product.id);
+                    // 🔥 核心修改：使用 cumulative_unit_net_value（累计单位净值）
+                    const validNetValues = res.results?.filter((item: ProductNetValue) => {
+                        const val = Number(item.cumulative_unit_net_value);
                         return !!item.net_value_date && !isNaN(val) && val >= 0;
-                    }).map(item => ({
-                        date: item.net_value_date.trim(), // 正确访问对象的 date 属性
-                        value: Number(item.net_value),
-                    })).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()) || [];
+                    }).map((item: ProductNetValue) => ({
+                        date: item.net_value_date.trim(),
+                        value: Number(item.cumulative_unit_net_value),
+                    })).sort((a: ValidNetValue, b: ValidNetValue) => new Date(a.date).getTime() - new Date(b.date).getTime()) || [];
 
                     if (validNetValues.length > 0) {
                         chartDataList.push({
@@ -250,9 +304,9 @@ export default function NetValuesManagementPage() {
                 }
 
                 setChartProductList(chartDataList);
-                setChartError(chartDataList.length === 0 ? '暂无有效净值数据，请选择其他产品' : null);
+                setChartError(chartDataList.length === 0 ? '暂无有效累计净值数据，请选择其他产品' : null);
             } catch (err) {
-                setChartError('净值加载失败，请刷新');
+                setChartError('累计净值加载失败，请刷新');
                 setChartProductList([]);
             } finally {
                 setChartLoading(false);
@@ -262,17 +316,16 @@ export default function NetValuesManagementPage() {
         loadNetValues();
     }, [selectedBenchmark, selectedCompares]);
 
-    // ====================== 8. 更新图表（修复核心类型错误） ======================
+    // ====================== 更新图表 ======================
     useEffect(() => {
         if (!chartRef.current || !echartsInstance.current || chartLoading || chartProductList.length === 0) {
             return;
         }
 
         try {
-            // 1. 收集所有日期字符串（sortedDates 是 string[] 类型）
             const allDates = new Set<string>();
-            chartProductList.forEach(p => p.netValues.forEach(nv => allDates.add(nv.date))); // nv 是 ValidNetValue 对象，可访问 .date
-            const sortedDates = Array.from(allDates).sort((a, b) => new Date(a).getTime() - new Date(b).getTime()); // a/b 是 string，直接用 new Date(a)
+            chartProductList.forEach(p => p.netValues.forEach(nv => allDates.add(nv.date)));
+            const sortedDates = Array.from(allDates).sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
             const xAxisData = sortedDates.map(formatDate);
 
             if (xAxisData.length === 0) {
@@ -280,14 +333,12 @@ export default function NetValuesManagementPage() {
                 return;
             }
 
-            // 2. 构建系列数据（核心修复：避免访问字符串的 .date 属性）
             const series = chartProductList.map((product, index) => {
                 const style = getSeriesStyle(product.isBenchmark, index);
                 const seriesName = product.isBenchmark ? `[基准] ${product.name}` : product.name;
 
-                // 关键修复：sortedDates 是 string[]，遍历的 date 是字符串，直接和 nv.date 对比
-                const yData = sortedDates.map((dateStr) => { // 重命名变量为 dateStr，避免混淆
-                    const match = product.netValues.find(nv => nv.date === dateStr); // nv 是对象，dateStr 是字符串，直接对比
+                const yData = sortedDates.map((dateStr) => {
+                    const match = product.netValues.find(nv => nv.date === dateStr);
                     return match ? match.value : undefined;
                 });
 
@@ -311,9 +362,8 @@ export default function NetValuesManagementPage() {
                 };
             });
 
-            // 3. 图表配置
             const chartOption: EChartOption = {
-                title: { text: '多产品净值趋势对比', left: 'center' as const, textStyle: { fontSize: 16, color: '#1f2937' } },
+                title: { text: '多产品累计单位净值趋势对比', left: 'center' as const, textStyle: { fontSize: 16, color: '#1f2937' } },
                 legend: { show: false },
                 tooltip: {
                     trigger: 'axis' as const,
@@ -353,7 +403,7 @@ export default function NetValuesManagementPage() {
         }
     }, [chartProductList, chartLoading]);
 
-    // ====================== 9. 交互事件（无修改） ======================
+    // ====================== 交互事件 ======================
     const handleFilterChange = (name: keyof ProductFilterParams, value: string) => {
         setFilters(prev => ({ ...prev, [name]: value }));
     };
@@ -383,12 +433,11 @@ export default function NetValuesManagementPage() {
         echartsInstance.current?.dispatchAction({ type: 'legendToggleSelect', name: seriesName });
     };
 
-    // ====================== 10. 页面渲染（无修改，框架始终保留） ======================
+    // ====================== 页面渲染 ======================
     return (
         <div style={STYLES.container}>
-            <h1 style={STYLES.title}>净值管理（基准+对比）</h1>
+            <h1 style={STYLES.title}>净值管理（累计单位净值对比）</h1>
 
-            {/* 筛选区域：始终显示 */}
             <div style={STYLES.filterCard}>
                 <div style={STYLES.filterGrid}>
                     <div style={STYLES.filterItem}>
@@ -467,7 +516,6 @@ export default function NetValuesManagementPage() {
                 </div>
             </div>
 
-            {/* 产品选择 + 已选产品区域：始终显示 */}
             <div style={STYLES.productArea}>
                 <div style={STYLES.productListCard}>
                     {loading ? (
@@ -561,7 +609,6 @@ export default function NetValuesManagementPage() {
                 </div>
             </div>
 
-            {/* 图例面板：始终显示 */}
             <div style={{ ...STYLES.legendPanel, height: legendVisible ? 'auto' : '36px' }}>
                 <button style={STYLES.legendToggleBtn} onClick={() => setLegendVisible(!legendVisible)}>
                     <span>图例</span>
@@ -583,14 +630,13 @@ export default function NetValuesManagementPage() {
                 )}
             </div>
 
-            {/* 图表容器：始终显示 */}
             <div style={STYLES.chartContainer}>
                 <div ref={chartRef} style={STYLES.chartDom} />
                 {(chartLoading || chartError || chartProductList.length === 0) && (
                     <div style={{ ...STYLES.placeholder, color: chartError ? '#dc2626' : '#6b7280' }}>
-                        {chartLoading && '加载图表数据中...'}
+                        {chartLoading && '加载累计净值数据中...'}
                         {chartError && chartError}
-                        {!chartLoading && !chartError && chartProductList.length === 0 && '暂无有效净值数据，请选择其他产品'}
+                        {!chartLoading && !chartError && chartProductList.length === 0 && '暂无有效累计净值数据，请选择其他产品'}
                     </div>
                 )}
             </div>

@@ -1,20 +1,35 @@
-// 标签字典类型
 export interface CycleTag {
-    id: number; // 后端实际返回的唯一标识（替代之前的 cycle_id）
-    cycle_name: string; // 后端字段，无需修改
-    cycle_desc: string; // 后端字段，无需修改
-    // 可选：保留后端返回的其他字段（不影响使用，按需添加）
+    id: number;
+    cycle_name: string;
+    cycle_desc: string | null;
     create_time?: string;
     update_time?: string;
 }
 
 export interface QuantType {
-    id: number; // 替代 quant_id
+    id: number;
     quant_name: string;
-    quant_desc: string;
+    quant_desc: string | null;
     create_time?: string;
     update_time?: string;
 }
+
+export interface AlgorithmType {
+    id: number;
+    alg_name: string;
+    alg_desc: string | null;
+    create_time?: string;
+    update_time?: string;
+}
+
+export interface StrategyType {
+    id: number;
+    strategy_name: string;
+    strategy_desc: string | null;
+    create_time?: string;
+    update_time?: string;
+}
+
 export interface ProductCorrelation {
     id: number;
     product1: number;
@@ -23,7 +38,7 @@ export interface ProductCorrelation {
     product2_name: string;
     start_date: string;
     end_date: string;
-    correlation_coefficient: number;
+    correlation_coefficient: number | null;
     calculation_time: string;
     is_valid: boolean;
 }
@@ -32,45 +47,23 @@ export interface ProductNetValue {
     id: number;
     product: number;
     product_name: string;
-    net_value_date: string; // 日期格式：YYYY-MM-DD
-    net_value: number;
+    product_code: string;
+    net_value_date: string;
+    net_value: number | null;
+    cumulative_unit_net_value: number | null;
+    email_id: string | null;
+    email_subject: string | null;
+    email_date: string | null;
+    attachment_filename: string | null;
+    parse_mode: string;
     data_source: string | null;
     is_valid: boolean;
     create_time: string;
 }
 
-export interface NetValueApiResponse<T> {
-    count: number;
-    next: string | null;
-    previous: string | null;
-    results: T[];
-}
-
-export interface AlgorithmType {
-    id: number; // 替代 alg_id
-    alg_name: string; // 按后端实际字段名（如果后端是 algorithm_name 则用这个，若为 alg_name 则对应修改）
-    alg_desc: string;
-    create_time?: string;
-    update_time?: string;
-}
-
-export interface StrategyType {
-    id: number; // 替代 strategy_id
-    strategy_name: string;
-    strategy_desc: string;
-    create_time?: string;
-    update_time?: string;
-}
-export interface TagsState {
-    cycles: CycleTag[];
-    quantTypes: QuantType[];
-    algorithms: AlgorithmType[];
-    strategies: StrategyType[];
-}
-
-// 产品类型
 export interface Product {
     id: number;
+    product_code: string;
     product_name: string;
     cycle: number;
     cycle_name: string;
@@ -80,15 +73,15 @@ export interface Product {
     algorithm_name: string;
     strategy: number;
     strategy_name: string;
-    score: number | string; // 兼容数字/字符串格式
+    score: number | string;
     product_desc: string | null;
     is_valid: boolean;
     create_time: string;
     update_time: string;
 }
 
-// 添加/编辑产品表单类型
 export interface ProductFormData {
+    product_code: string;
     product_name: string;
     cycle_name_input: string;
     quant_type_name_input: string;
@@ -98,7 +91,6 @@ export interface ProductFormData {
     product_desc: string;
 }
 
-// API 响应通用类型
 export interface ApiResponse<T> {
     count: number;
     next: string | null;
@@ -106,18 +98,68 @@ export interface ApiResponse<T> {
     results: T[];
 }
 
-export interface ProductFilterParams {
-    cycle: string;       // 周期标签ID（字符串格式，适配URL参数）
-    quant_type: string;  // 量化类型ID
-    algorithm: string;   // 算法类型ID
-    strategy: string;    // 策略类型ID
-    search: string;      // 搜索关键词
+export interface NetValueApiResponse<T> {
+    count: number;
+    results: T[];
 }
 
-// 定义并导出 TagsState
+export interface ProductFilterParams {
+    cycle: string;
+    quant_type: string;
+    algorithm: string;
+    strategy: string;
+    search: string;
+    is_valid?: string;
+}
+
 export interface TagsState {
     cycles: CycleTag[];
     quantTypes: QuantType[];
     algorithms: AlgorithmType[];
     strategies: StrategyType[];
+}
+
+export interface CsvImportRowData {
+    product_id: string;
+    net_value_date: string;
+    net_value: string;
+    data_source?: string;
+    is_valid?: string;
+}
+
+export interface CsvImportResponse {
+    message: string;
+    summary: {
+        total: number;
+        success: number;
+        failed: number;
+        updated: number;
+        created: number;
+    };
+    failed_records: Array<{
+        row_num: number;
+        data: CsvImportRowData;
+        reason: string;
+    }>;
+    code: number;
+    import_success: number;
+    import_failed: number;
+    error_details: any[];
+}
+// 🔥 新增：定义用户信息类型（和useAuth保持一致）
+export interface UserInfo {
+    username: string;
+    is_admin: boolean;
+    is_product_op: boolean;
+    is_client: boolean;
+    is_analyst: boolean;
+    groups: string[];
+}
+export interface SingleNetValueRequest {
+    product: number;
+    net_value_date: string;
+    net_value: number | string;
+    cumulative_unit_net_value?: number | string;
+    data_source?: string;
+    is_valid?: boolean;
 }

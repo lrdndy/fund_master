@@ -13,13 +13,17 @@ const formatCorrelationValue = (value: number | null): string => {
 };
 
 export default function CorrelationBoard() {
+    // 本地存储常量（持久化已选产品）
+    const STORAGE_KEY = 'correlation_selected_product_ids';
+
     // 核心状态
     const [allProducts, setAllProducts] = useState<Product[]>([]);
     const [filteredProducts, setFilteredProducts] = useState<Product[]>([]);
+    // 从本地存储初始化已选产品
     const [selectedProductIds, setSelectedProductIds] = useState<number[]>([]);
     const [correlationData, setCorrelationData] = useState<ProductCorrelation[]>([]);
     const [loading, setLoading] = useState<boolean>(true);
-    const [queryLoading, setQueryLoading] = useState(false);
+    const [queryLoading, setQueryLoading] = useState<boolean>(false);
     const [productError, setProductError] = useState<string | null>(null);
     const [correlationError, setCorrelationError] = useState<string | null>(null);
 
@@ -35,11 +39,56 @@ export default function CorrelationBoard() {
     // 标签数据（复用净值管理的hooks）
     const { tags, tagsLoading, tagsError } = useProductTags();
 
-    // 1. 加载产品数据（带筛选逻辑）
+    // ==============================================
+    // 🔥 1. 页面首次加载：加载全量产品 + 恢复本地已选产品（只执行1次）
+    // ==============================================
     useEffect(() => {
-        const loadProducts = async () => {
-            setLoading(true);
+        const initPage = async () => {
             try {
+                setLoading(true);
+                // 1. 加载所有产品
+                const res: ApiResponse<Product> = await productApi.getProducts({ is_valid: 'true' });
+                const products = res.results || [];
+                setAllProducts(products);
+                setFilteredProducts(products);
+
+                // 2. 从本地存储恢复已选产品ID
+                const savedIds = localStorage.getItem(STORAGE_KEY);
+                if (savedIds) {
+                    try {
+                        const parsedIds = JSON.parse(savedIds) as number[];
+                        // 校验：只保留存在的产品ID
+                        const validIds = parsedIds.filter(id => products.some(p => p.id === id));
+                        setSelectedProductIds(validIds);
+                    } catch (e) {
+                        setSelectedProductIds([]);
+                    }
+                }
+
+                setProductError(null);
+            } catch (err: unknown) {
+                const message = err instanceof Error ? err.message : '未知错误';
+                setProductError(`产品加载失败：${message}`);
+                setAllProducts([]);
+                setFilteredProducts([]);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        initPage();
+    }, []);
+
+    // ==============================================
+    // 🔥 2. 筛选/搜索：仅更新产品列表，绝不修改已选产品（核心修复）
+    // ==============================================
+    useEffect(() => {
+        const filterProducts = async () => {
+            // 首次加载已执行，这里只处理筛选
+            if (allProducts.length === 0) return;
+
+            try {
+                setLoading(true);
                 const params: Record<string, string> = { is_valid: 'true' };
                 if (filters.cycle) params.cycle = filters.cycle;
                 if (filters.quant_type) params.quant_type = filters.quant_type;
@@ -49,21 +98,27 @@ export default function CorrelationBoard() {
 
                 const res: ApiResponse<Product> = await productApi.getProducts(params);
                 const products = res.results || [];
-                setAllProducts(products);
+                // 🔥 只更新筛选后的列表，已选产品ID完全不动！
                 setFilteredProducts(products);
                 setProductError(null);
-            } catch (err: any) {
-                setProductError(`产品加载失败：${err.message}`);
-                setAllProducts([]);
-                setFilteredProducts([]);
+            } catch (err: unknown) {
+                const message = err instanceof Error ? err.message : '未知错误';
+                setProductError(`筛选失败：${message}`);
             } finally {
                 setLoading(false);
             }
         };
 
-        const timer = setTimeout(loadProducts, 300);
+        const timer = setTimeout(filterProducts, 300);
         return () => clearTimeout(timer);
-    }, [filters]);
+    }, [filters, allProducts]);
+
+    // ==============================================
+    // 🔥 3. 持久化保存：手动修改已选产品后，自动存本地
+    // ==============================================
+    useEffect(() => {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(selectedProductIds));
+    }, [selectedProductIds]);
 
     // 2. 筛选条件变更处理
     const handleFilterChange = (name: keyof ProductFilterParams, value: string) => {
@@ -84,9 +139,30 @@ export default function CorrelationBoard() {
         );
     };
 
-    // 5. 移除已选产品
+    // 5. 移除单个已选产品
     const handleRemoveProduct = (productId: number) => {
         setSelectedProductIds(prev => prev.filter(id => id !== productId));
+    };
+
+    // ========== 批量操作函数 ==========
+    // 清空所有已选产品
+    const handleClearSelected = () => {
+        setSelectedProductIds([]);
+    };
+
+    // 全选当前筛选后的产品
+    const handleSelectAll = () => {
+        if (filteredProducts.length === 0) return;
+        const allIds = filteredProducts.map(p => p.id);
+        setSelectedProductIds(allIds);
+    };
+
+    // 反选当前筛选后的产品
+    const handleInvertSelect = () => {
+        if (filteredProducts.length === 0) return;
+        const allIds = filteredProducts.map(p => p.id);
+        const newSelectedIds = allIds.filter(id => !selectedProductIds.includes(id));
+        setSelectedProductIds(newSelectedIds);
     };
 
     // 6. 查询相关性数据
@@ -109,8 +185,9 @@ export default function CorrelationBoard() {
             if (res.results.length === 0) {
                 setCorrelationError("未查询到相关性数据");
             }
-        } catch (err: any) {
-            setCorrelationError(`查询相关性失败：${err.message}`);
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : '未知错误';
+            setCorrelationError(`查询相关性失败：${message}`);
             setCorrelationData([]);
         } finally {
             setQueryLoading(false);
@@ -145,7 +222,7 @@ export default function CorrelationBoard() {
                 产品相关性看板
             </h1>
 
-            {/* 1. 筛选区域（精致化样式） */}
+            {/* 1. 筛选区域 */}
             <div className="mb-8 p-5 border border-slate-200 rounded-xl bg-white shadow-md hover:shadow-lg transition-shadow duration-300">
                 <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-5">
                     {/* 产品名称搜索 */}
@@ -267,16 +344,41 @@ export default function CorrelationBoard() {
                 )}
             </div>
 
-            {/* 2. 产品选择 + 已选产品区域（精致化布局） */}
+            {/* 2. 产品选择 + 已选产品区域 */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
                 {/* 产品列表 */}
                 <div className="col-span-2 border border-slate-200 rounded-xl bg-white p-5 shadow-md hover:shadow-lg transition-shadow duration-300">
-                    <h2 className="font-semibold mb-4 text-slate-800 flex items-center gap-2 text-lg">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
-                        </svg>
-                        产品列表
-                    </h2>
+                    <div className="flex justify-between items-center mb-4">
+                        <h2 className="font-semibold text-slate-800 flex items-center gap-2 text-lg">
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+                            </svg>
+                            产品列表
+                        </h2>
+                        {/* 批量选择按钮 */}
+                        {!loading && filteredProducts.length > 0 && (
+                            <div className="flex gap-2">
+                                <button
+                                    onClick={handleSelectAll}
+                                    className="px-3 py-1.5 bg-green-50 text-green-600 rounded-lg text-xs font-medium hover:bg-green-100 border border-green-200 transition-all duration-200"
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 inline mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                    </svg>
+                                    全选
+                                </button>
+                                <button
+                                    onClick={handleInvertSelect}
+                                    className="px-3 py-1.5 bg-purple-50 text-purple-600 rounded-lg text-xs font-medium hover:bg-purple-100 border border-purple-200 transition-all duration-200"
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 inline mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                    </svg>
+                                    反选
+                                </button>
+                            </div>
+                        )}
+                    </div>
 
                     {loading ? (
                         <div className="flex items-center justify-center h-48 text-slate-500 flex-col gap-2">
@@ -330,12 +432,26 @@ export default function CorrelationBoard() {
 
                 {/* 已选产品 */}
                 <div className="col-span-1 border border-slate-200 rounded-xl bg-white p-5 shadow-md hover:shadow-lg transition-shadow duration-300">
-                    <h2 className="font-semibold mb-4 text-slate-800 flex items-center gap-2 text-lg">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                        </svg>
-                        已选产品（{selectedProductIds.length}个）
-                    </h2>
+                    <div className="flex justify-between items-center mb-4">
+                        <h2 className="font-semibold text-slate-800 flex items-center gap-2 text-lg">
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                            </svg>
+                            已选产品（{selectedProductIds.length}个）
+                        </h2>
+                        {/* 清空已选按钮 */}
+                        {selectedProductIds.length > 0 && (
+                            <button
+                                onClick={handleClearSelected}
+                                className="px-3 py-1.5 bg-red-50 text-red-600 rounded-lg text-xs font-medium hover:bg-red-100 border border-red-200 transition-all duration-200 flex items-center gap-1"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                </svg>
+                                清空已选
+                            </button>
+                        )}
+                    </div>
 
                     <div className="min-h-[120px] border-2 border-dashed border-slate-200 rounded-lg p-4 bg-slate-50 flex flex-wrap gap-2.5 content-start">
                         {selectedProductIds.length > 0 ? (
@@ -393,7 +509,7 @@ export default function CorrelationBoard() {
                 </div>
             </div>
 
-            {/* 3. 相关性矩阵（保留原始表格样式） */}
+            {/* 3. 相关性矩阵 */}
             {selectedProductIds.length >= 2 && (
                 <div className="border border-slate-200 rounded-xl bg-white p-5 shadow-md hover:shadow-lg transition-shadow duration-300 overflow-x-auto">
                     <h2 className="font-semibold mb-5 text-slate-800 flex items-center gap-2 text-lg">

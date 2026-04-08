@@ -12,8 +12,9 @@ import {
 } from '@/lib/types';
 import { productApi, tagApi } from '@/lib/api';
 
-// 表单验证 schema
+// 表单验证 schema 🔥 修复：新增 product_code 验证
 const productFormSchema = z.object({
+    product_code: z.string().min(2, '产品代码至少2个字符').max(20, '产品代码最多20个字符'), // 新增
     product_name: z.string().min(2, '产品名称至少2个字符').max(50, '产品名称最多50个字符'),
     cycle_name_input: z.string().min(1, '请选择周期标签'),
     quant_type_name_input: z.string().min(1, '请选择量化类型'),
@@ -40,7 +41,7 @@ export default function NewProductPage() {
         strategies: [],
     });
 
-    // 初始化表单
+    // 初始化表单 🔥 修复：新增 product_code 默认值
     const {
         register,
         handleSubmit,
@@ -49,6 +50,7 @@ export default function NewProductPage() {
     } = useForm<FormData>({
         resolver: zodResolver(productFormSchema),
         defaultValues: {
+            product_code: '', // 新增
             product_name: '',
             cycle_name_input: '',
             quant_type_name_input: '',
@@ -85,12 +87,13 @@ export default function NewProductPage() {
         void loadTags();
     }, []);
 
-    // 提交表单
+    // 提交表单 🔥 修复：新增 product_code 字段
     const onSubmit = async (data: FormData) => {
         setLoading(true);
         setError(null);
         try {
             const productData: ProductFormData = {
+                product_code: data.product_code, // 新增
                 product_name: data.product_name,
                 cycle_name_input: data.cycle_name_input,
                 quant_type_name_input: data.quant_type_name_input,
@@ -145,6 +148,20 @@ export default function NewProductPage() {
                 )}
 
                 <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+                    {/* 产品代码 🔥 修复：新增产品代码输入框 */}
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">产品代码 <span className="text-red-600">*</span></label>
+                        <input
+                            type="text"
+                            {...register('product_code')}
+                            className="input-field"
+                            placeholder="输入产品代码（如：SAWV26）"
+                        />
+                        {errors.product_code && (
+                            <p className="mt-1 text-red-600 text-sm">{errors.product_code.message}</p>
+                        )}
+                    </div>
+
                     {/* 产品名称 */}
                     <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">产品名称 <span className="text-red-600">*</span></label>

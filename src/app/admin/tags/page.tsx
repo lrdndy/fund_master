@@ -15,6 +15,21 @@ interface TagFormData {
     desc: string;
 }
 
+// 🔥 新增：错误信息安全获取工具函数
+const getErrorMessage = (err: unknown): string => {
+    if (err instanceof Error) return err.message;
+    if (typeof err === 'object' && err !== null && 'message' in err) {
+        return String((err as { message?: string }).message);
+    }
+    if (typeof err === 'object' && err !== null && 'response' in err) {
+        const response = (err as { response?: { data?: unknown } }).response;
+        if (response?.data && typeof response.data === 'object' && response.data !== null) {
+            return Object.values(response.data).flat().join('；');
+        }
+    }
+    return '操作失败，请重试';
+};
+
 export default function AdminTagManager() {
     // 核心状态
     const [activeTagType, setActiveTagType] = useState<TagType>('cycle');
@@ -89,8 +104,9 @@ export default function AdminTagManager() {
                     algorithms: algRes.results || [],
                     strategies: strategyRes.results || []
                 });
-            } catch (err: any) {
-                setError(`标签数据加载失败：${err.message || '网络异常'}`);
+            } catch (err: unknown) {
+                // 🔥 修复：替换 any 为 unknown，用工具函数获取错误信息
+                setError(`标签数据加载失败：${getErrorMessage(err)}`);
             } finally {
                 setLoading(false);
             }
@@ -100,7 +116,8 @@ export default function AdminTagManager() {
     }, [isAdmin]);
 
     // 3. 打开新增/编辑弹窗（纯类型安全版）
-    const openModal = (type: 'add' | 'edit', tagType: TagType, tag?: any) => {
+    // 🔥 修复：替换 tag?: any 为具体的联合类型
+    const openModal = (type: 'add' | 'edit', tagType: TagType, tag?: CycleTag | QuantType | AlgorithmType | StrategyType) => {
         setModalType(type);
         setActiveTagType(tagType);
         setOperateError(null);
@@ -113,20 +130,21 @@ export default function AdminTagManager() {
 
             switch (tagType) {
                 case 'cycle':
-                    formName = tag.cycle_name;
-                    formDesc = tag.cycle_desc || '';
+                    // 🔥 修复：类型断言，确保 tag 是 CycleTag
+                    formName = (tag as CycleTag).cycle_name;
+                    formDesc = (tag as CycleTag).cycle_desc || '';
                     break;
                 case 'quant':
-                    formName = tag.quant_name;
-                    formDesc = tag.quant_desc || '';
+                    formName = (tag as QuantType).quant_name;
+                    formDesc = (tag as QuantType).quant_desc || '';
                     break;
                 case 'algorithm':
-                    formName = tag.alg_name;
-                    formDesc = tag.alg_desc || '';
+                    formName = (tag as AlgorithmType).alg_name;
+                    formDesc = (tag as AlgorithmType).alg_desc || '';
                     break;
                 case 'strategy':
-                    formName = tag.strategy_name;
-                    formDesc = tag.strategy_desc || '';
+                    formName = (tag as StrategyType).strategy_name;
+                    formDesc = (tag as StrategyType).strategy_desc || '';
                     break;
             }
 
@@ -229,17 +247,25 @@ export default function AdminTagManager() {
             }
 
             setModalOpen(false); // 关闭弹窗
-        } catch (err: any) {
-            // 捕获后端校验错误（如名称重复）
+        } catch (err: unknown) {
+            // 🔥 修复：替换 any 为 unknown，安全处理错误
             const errorKey =
                 activeTagType === 'cycle' ? 'cycle_name' :
                     activeTagType === 'quant' ? 'quant_name' :
                         activeTagType === 'algorithm' ? 'alg_name' : 'strategy_name';
 
-            setOperateError(
-                err.response?.data?.[errorKey] ||
-                `操作失败：${err.message || '未知错误'}`
-            );
+            // 安全获取错误信息
+            let errMsg = '操作失败';
+            if (typeof err === 'object' && err !== null && 'response' in err) {
+                const response = (err as { response?: { data?: Record<string, unknown> } }).response;
+                if (response?.data && typeof response.data === 'object') {
+                    errMsg = String(response.data[errorKey] || getErrorMessage(err));
+                }
+            } else {
+                errMsg = getErrorMessage(err);
+            }
+
+            setOperateError(errMsg);
         } finally {
             setOperateLoading(false);
         }
@@ -279,13 +305,20 @@ export default function AdminTagManager() {
                 }
                 return newTags;
             });
-        } catch (err: any) {
-            // 捕获后端关联保护错误
-            if (err.response?.status === 400) {
-                setOperateError(err.response.data.error || '该标签已关联产品，无法删除');
+        } catch (err: unknown) {
+            // 🔥 修复：替换 any 为 unknown，安全处理错误
+            let errMsg = '删除失败';
+            if (typeof err === 'object' && err !== null && 'response' in err) {
+                const response = (err as { response?: { status?: number; data?: { error?: string } } }).response;
+                if (response?.status === 400) {
+                    errMsg = response.data?.error || '该标签已关联产品，无法删除';
+                } else {
+                    errMsg = getErrorMessage(err);
+                }
             } else {
-                setOperateError(`删除失败：${err.message || '网络异常'}`);
+                errMsg = getErrorMessage(err);
             }
+            setOperateError(errMsg);
         } finally {
             setOperateLoading(false);
         }
