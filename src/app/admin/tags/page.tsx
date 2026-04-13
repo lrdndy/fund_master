@@ -6,6 +6,8 @@ import {
 } from '@/lib/types';
 import { tagApi } from '@/lib/api';
 import useProductTags from '@/hooks/useProductTags';
+// 🔥 新增：导入权限钩子
+import useAuth from '@/hooks/useAuth';
 
 // 标签类型枚举
 type TagType = 'cycle' | 'quant' | 'algorithm' | 'strategy';
@@ -59,25 +61,22 @@ export default function AdminTagManager() {
         desc: ''
     });
 
-    // 权限状态
-    const [isAdmin, setIsAdmin] = useState<boolean>(false);
+    // 🔥 核心：替换为你提供的权限钩子
+    const { hasWritePermission, loading: authLoading } = useAuth();
     // 复用标签hooks（和相关性看板一致）
     const { tags: initTags, tagsLoading, tagsError } = useProductTags();
 
-    // 1. 权限校验（仅管理员可访问）
+    // 🔥 移除旧的localStorage管理员校验逻辑
+    // 权限校验：无写入权限则跳转首页
     useEffect(() => {
-        const fundIsAdmin = localStorage.getItem('fundIsAdmin');
-        setIsAdmin(fundIsAdmin === 'true');
-
-        // 非管理员直接跳转首页
-        if (fundIsAdmin !== 'true') {
+        if (!authLoading && !hasWritePermission) {
             window.location.href = '/';
         }
-    }, []);
+    }, [authLoading, hasWritePermission]);
 
-    // 2. 加载标签数据
+    // 🔥 加载标签数据：依赖改为 hasWritePermission
     useEffect(() => {
-        if (!isAdmin) return;
+        if (!hasWritePermission) return;
 
         const loadAllTags = async () => {
             setLoading(true);
@@ -113,7 +112,7 @@ export default function AdminTagManager() {
         };
 
         loadAllTags();
-    }, [isAdmin]);
+    }, [hasWritePermission]);
 
     // 3. 打开新增/编辑弹窗（纯类型安全版）
     // 🔥 修复：替换 tag?: any 为具体的联合类型
@@ -324,8 +323,9 @@ export default function AdminTagManager() {
         }
     };
 
-    // 非管理员/加载中状态
-    if (!isAdmin) return <div className="container mx-auto py-10 text-center">权限验证中...</div>;
+    // 🔥 权限/加载状态渲染
+    if (authLoading) return <div className="container mx-auto py-10 text-center">权限验证中...</div>;
+    if (!hasWritePermission) return <div className="container mx-auto py-10 text-center">无权限访问</div>;
     if (loading && tagsLoading) {
         return (
             <div className="container mx-auto py-10 text-center flex flex-col items-center gap-4">
@@ -335,9 +335,9 @@ export default function AdminTagManager() {
         );
     }
 
+    // ==================== 以下UI/业务逻辑完全不变 ====================
     return (
         <div className="container mx-auto p-4 sm:p-6 bg-slate-50 min-h-screen">
-            {/* 页面标题（和相关性看板风格一致） */}
             <h1 className="text-[clamp(1.5rem,3vw,2rem)] font-bold mb-8 text-slate-800 flex items-center gap-2">
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
@@ -345,7 +345,6 @@ export default function AdminTagManager() {
                 标签页管理
             </h1>
 
-            {/* 错误提示（全局加载错误） */}
             {error && (
                 <div className="text-red-600 text-sm mb-6 p-3 bg-red-50 rounded-lg border border-red-200 flex items-center gap-2">
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -355,10 +354,8 @@ export default function AdminTagManager() {
                 </div>
             )}
 
-            {/* 标签类型切换 + 新增按钮区域 */}
             <div className="mb-8 p-5 border border-slate-200 rounded-xl bg-white shadow-md hover:shadow-lg transition-shadow duration-300">
                 <div className="flex flex-wrap items-center justify-between gap-4">
-                    {/* 标签类型切换 */}
                     <div className="flex flex-wrap gap-2">
                         {[
                             { key: 'cycle', label: '周期标签', icon: '📅' },
@@ -381,7 +378,6 @@ export default function AdminTagManager() {
                         ))}
                     </div>
 
-                    {/* 新增按钮 */}
                     <button
                         onClick={() => openModal('add', activeTagType)}
                         disabled={operateLoading}
@@ -399,7 +395,6 @@ export default function AdminTagManager() {
                 </div>
             </div>
 
-            {/* 标签列表区域（纯类型安全版，按类型分支渲染） */}
             <div className="border border-slate-200 rounded-xl bg-white p-5 shadow-md hover:shadow-lg transition-shadow duration-300 mb-8">
                 <h2 className="font-semibold mb-4 text-slate-800 flex items-center gap-2 text-lg">
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -420,7 +415,6 @@ export default function AdminTagManager() {
                 ) : (
                     <div className="space-y-1.5 overflow-y-auto max-h-[500px] pr-1 custom-scrollbar">
                         {(() => {
-                            // 按标签类型分支渲染，彻底避免字符串索引
                             switch (activeTagType) {
                                 case 'cycle':
                                     return tags.cycles.length === 0 ? (
@@ -545,7 +539,7 @@ export default function AdminTagManager() {
                                 case 'strategy':
                                     return tags.strategies.length === 0 ? (
                                         <div className="flex items-center justify-center h-48 text-slate-500 flex-col gap-2 p-4">
-                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 text-slate-400" fill="none" viewBox="0 24 24" stroke="currentColor">
                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                                             </svg>
                                             <span className="text-sm">暂无策略类型数据</span>
@@ -587,7 +581,6 @@ export default function AdminTagManager() {
                 )}
             </div>
 
-            {/* 操作错误提示（删除/编辑/新增失败） */}
             {operateError && (
                 <div className="text-red-600 text-sm mb-6 p-3 bg-red-50 rounded-lg border border-red-200 flex items-center gap-2">
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -597,7 +590,6 @@ export default function AdminTagManager() {
                 </div>
             )}
 
-            {/* 新增/编辑弹窗（和参考页面交互风格一致） */}
             {modalOpen && (
                 <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
                     <div className="bg-white rounded-xl w-full max-w-md p-6 shadow-2xl">
@@ -612,14 +604,12 @@ export default function AdminTagManager() {
                         }
                         </h2>
 
-                        {/* 表单错误提示 */}
                         {operateError && (
                             <div className="text-red-600 text-xs mb-4 p-2 bg-red-50 rounded-lg border border-red-200">
                                 {operateError}
                             </div>
                         )}
 
-                        {/* 表单内容 */}
                         <div className="space-y-4">
                             <div className="flex flex-col gap-1.5">
                                 <label className="text-xs font-semibold text-slate-600 tracking-wide">
@@ -656,7 +646,6 @@ export default function AdminTagManager() {
                             </div>
                         </div>
 
-                        {/* 弹窗按钮 */}
                         <div className="flex gap-3 justify-end mt-6">
                             <button
                                 onClick={() => setModalOpen(false)}
@@ -684,7 +673,6 @@ export default function AdminTagManager() {
                 </div>
             )}
 
-            {/* 自定义滚动条样式（和相关性看板一致） */}
             <style jsx global>{`
         .custom-scrollbar::-webkit-scrollbar {
           width: 6px;
