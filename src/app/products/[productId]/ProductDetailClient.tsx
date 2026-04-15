@@ -1,4 +1,3 @@
-// ProductDetailClient.tsx
 'use client';
 import { useEffect, useState } from 'react';
 import { productApi, downloadUtils, netValueApi } from '@/lib/api';
@@ -89,7 +88,7 @@ export default function ProductDetailClient({ initialProductId }: ProductDetailC
                 setProduct(productRes);
                 setNetValues(netValuesRes.results);
 
-                // 🔥 修复：明确转换 CustomTag[] -> number[]
+                // 修复：明确转换 CustomTag[] -> number[]
                 setEditForm({
                     product_code: productRes.product_code || '',
                     product_name: productRes.product_name,
@@ -100,7 +99,7 @@ export default function ProductDetailClient({ initialProductId }: ProductDetailC
                     algorithm: Number(productRes.algorithm),
                     strategy: Number(productRes.strategy),
                     fof_own: productRes.fof_own  ? Number(productRes.fof_own ) : undefined,
-                    custom_tag_ids: getTagIds(productRes.custom_tags), // 🔥 明确转换
+                    custom_tag_ids: getTagIds(productRes.custom_tags),
                 });
 
                 setError(null);
@@ -152,7 +151,7 @@ export default function ProductDetailClient({ initialProductId }: ProductDetailC
                 algorithm: Number(product.algorithm),
                 strategy: Number(product.strategy),
                 fof_own: product.fof_own  ? Number(product.fof_own ) : undefined,
-                custom_tag_ids: getTagIds(product.custom_tags), // 🔥 明确转换
+                custom_tag_ids: getTagIds(product.custom_tags),
             });
         }
     };
@@ -163,14 +162,7 @@ export default function ProductDetailClient({ initialProductId }: ProductDetailC
             return;
         }
 
-        if (!editForm.product_code.trim()) {
-            setEditError('产品代码不能为空');
-            return;
-        }
-        if (!editForm.product_name.trim()) {
-            setEditError('产品名称不能为空');
-            return;
-        }
+        // 移除产品代码/名称的必填校验（因为不可编辑，无需校验）
         if (editForm.score < 0 || editForm.score > 100) {
             setEditError('打分必须在 0-100 之间');
             return;
@@ -340,7 +332,7 @@ export default function ProductDetailClient({ initialProductId }: ProductDetailC
         algorithm: product.algorithm,
         strategy: product.strategy,
         fof_own: product.fof_own,
-        custom_tag_ids: getTagIds(product.custom_tags), // 🔥 明确转换
+        custom_tag_ids: getTagIds(product.custom_tags),
     };
 
     const filteredChartData = getFilteredChartData();
@@ -398,14 +390,15 @@ export default function ProductDetailClient({ initialProductId }: ProductDetailC
                 )}
 
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    {/* 🔥 产品代码：编辑模式禁用，不可编辑 */}
                     <div className="bg-gray-50 p-3 rounded col-span-2">
                         <p className="text-sm text-gray-500">产品代码</p>
                         {isEditing ? (
                             <input
                                 type="text"
                                 value={safeEditForm.product_code}
-                                onChange={(e) => handleFormChange('product_code', e.target.value)}
-                                className="w-full mt-1 border border-gray-300 rounded px-2 py-1"
+                                disabled={true} // 核心：禁用输入
+                                className="w-full mt-1 border border-gray-300 rounded px-2 py-1 bg-gray-100 cursor-not-allowed"
                                 placeholder="请输入产品代码"
                             />
                         ) : (
@@ -413,14 +406,15 @@ export default function ProductDetailClient({ initialProductId }: ProductDetailC
                         )}
                     </div>
 
+                    {/* 🔥 产品名称：编辑模式禁用，不可编辑 */}
                     <div className="bg-gray-50 p-3 rounded col-span-2">
                         <p className="text-sm text-gray-500">产品名称</p>
                         {isEditing ? (
                             <input
                                 type="text"
                                 value={safeEditForm.product_name}
-                                onChange={(e) => handleFormChange('product_name', e.target.value)}
-                                className="w-full mt-1 border border-gray-300 rounded px-2 py-1"
+                                disabled={true} // 核心：禁用输入
+                                className="w-full mt-1 border border-gray-300 rounded px-2 py-1 bg-gray-100 cursor-not-allowed"
                             />
                         ) : (
                             <p className="font-medium">{product.product_name}</p>
@@ -622,7 +616,6 @@ export default function ProductDetailClient({ initialProductId }: ProductDetailC
                                 <label className="text-xs">结束日期</label>
                                 <input
                                     type="date"
-                                    value={chartEndDate}
                                     onChange={(e) => setChartEndDate(e.target.value)}
                                     className="w-full border border-gray-300 rounded px-2 py-1 text-xs"
                                 />
