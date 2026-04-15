@@ -5,10 +5,17 @@ import { useEffect, useRef } from 'react';
 import * as echarts from 'echarts';
 import type { EChartOption } from 'echarts';
 
+type NetValueType = 'net_value' | 'cumulative_unit_net_value';
+
 interface NetValueChartProps {
-    netValues: Array<{ net_value_date: string; net_value: number | string }> | undefined;
+    netValues: Array<{
+        net_value_date: string;
+        net_value: number | string;
+        cumulative_unit_net_value?: number | string;
+    }> | undefined;
     productName: string;
     loading: boolean;
+    netValueType?: NetValueType;
 }
 
 interface ChartTooltipParam {
@@ -32,12 +39,12 @@ export default function NetValueChart({
                                           netValues = [],
                                           productName,
                                           loading,
+                                          netValueType = 'net_value',
                                       }: NetValueChartProps) {
     const chartRef = useRef<HTMLDivElement>(null);
     const chartInstance = useRef<echarts.ECharts | null>(null);
     const debouncedResize = useRef<() => void>(() => {});
 
-    // 初始化图表
     useEffect(() => {
         if (!chartRef.current) return;
 
@@ -54,20 +61,30 @@ export default function NetValueChart({
         };
     }, []);
 
-    // 渲染数据
     useEffect(() => {
         if (!chartInstance.current || loading) return;
 
-        const validNetValues = netValues.filter((item): item is { net_value_date: string; net_value: number } => {
-            const num = Number(item.net_value);
-            return !isNaN(num) && num >= 0 && item.net_value_date.trim() !== '';
-        });
+        // 🔥 修复：移除复杂的类型守卫，直接处理数据
+        const validData = netValues
+            .map(item => {
+                const valueField = netValueType;
+                const value = item[valueField];
+                const num = Number(value);
+                if (isNaN(num) || num < 0 || !item.net_value_date.trim()) {
+                    return null;
+                }
+                return {
+                    net_value_date: item.net_value_date,
+                    value: num
+                };
+            })
+            .filter((item): item is { net_value_date: string; value: number } => item !== null);
 
         chartInstance.current.clear();
 
-        if (validNetValues.length === 0) return;
+        if (validData.length === 0) return;
 
-        const sortedData = [...validNetValues].sort((a, b) =>
+        const sortedData = [...validData].sort((a, b) =>
             new Date(a.net_value_date).getTime() - new Date(b.net_value_date).getTime()
         );
 
@@ -75,14 +92,22 @@ export default function NetValueChart({
             const d = new Date(item.net_value_date);
             return `${d.getMonth() + 1}-${d.getDate().toString().padStart(2, '0')}`;
         });
-        const yData = sortedData.map(item => item.net_value);
+
+        const yData = sortedData.map(item => item.value);
 
         const yMin = Math.min(...yData) - 0.1;
         const yMax = Math.max(...yData) + 0.1;
 
+        const chartTitle = netValueType === 'cumulative_unit_net_value'
+            ? `${productName} 累计净值趋势`
+            : `${productName} 净值趋势`;
+        const valueLabel = netValueType === 'cumulative_unit_net_value'
+            ? '累计净值'
+            : '净值';
+
         const option: EChartOption = {
             title: {
-                text: `${productName} 净值趋势`,
+                text: chartTitle,
                 left: 'center',
                 textStyle: { color: '#1e3a8a', fontSize: 16, fontWeight: 600 },
             },
@@ -99,7 +124,7 @@ export default function NetValueChart({
                     if (!Array.isArray(params) || !params[0]) return '暂无数据';
                     const p = params[0] as ChartTooltipParam;
                     const val = Number(p.value) || 0;
-                    return `${p.name}<br/>${p.marker}净值：${val.toFixed(4)}`;
+                    return `${p.name}<br/>${p.marker}${valueLabel}：${val.toFixed(4)}`;
                 },
             },
             grid: { left: '10%', right: '5%', bottom: '15%', top: '20%', containLabel: true },
@@ -114,13 +139,12 @@ export default function NetValueChart({
                 type: 'value',
                 min: yMin,
                 max: yMax,
-                // ✅ TS 类型已修复
                 axisLabel: { color: '#64748b', fontSize: 11, formatter: (v: number) => v.toFixed(3) },
                 axisLine: { lineStyle: { color: '#e2e8f0' } },
                 splitLine: { lineStyle: { color: '#f1f5f9' } },
             },
             series: [{
-                name: '净值',
+                name: valueLabel,
                 type: 'line',
                 data: yData,
                 smooth: true,
@@ -142,7 +166,7 @@ export default function NetValueChart({
         };
 
         chartInstance.current.setOption(option, true);
-    }, [netValues, productName, loading]);
+    }, [netValues, productName, loading, netValueType]);
 
     if (loading) {
         return (
@@ -152,15 +176,21 @@ export default function NetValueChart({
         );
     }
 
-    const validNetValues = netValues.filter(item => {
-        const num = Number(item.net_value);
+    // 🔥 修复：简化数据验证逻辑
+    const hasValidData = netValues.some(item => {
+        const valueField = netValueType;
+        const value = item[valueField];
+        const num = Number(value);
         return !isNaN(num) && num >= 0 && item.net_value_date.trim() !== '';
     });
 
-    if (validNetValues.length === 0) {
+    if (!hasValidData) {
+        const noDataText = netValueType === 'cumulative_unit_net_value'
+            ? '暂无累计净值数据，无法生成图表'
+            : '暂无净值数据，无法生成图表';
         return (
             <div className="flex items-center justify-center h-[400px] bg-gray-50 rounded-lg border border-gray-200">
-                <span className="text-gray-500">暂无净值数据，无法生成图表</span>
+                <span className="text-gray-500">{noDataText}</span>
             </div>
         );
     }

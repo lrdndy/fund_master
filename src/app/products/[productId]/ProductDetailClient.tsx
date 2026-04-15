@@ -3,15 +3,14 @@
 import { useEffect, useState } from 'react';
 import { productApi, downloadUtils, netValueApi } from '@/lib/api';
 import NetValueChart from '@/components/products/NetValueChart';
-import { Product, ProductNetValue } from '@/lib/types';
+import { Product, ProductNetValue, CustomTag } from '@/lib/types';
 import { notFound } from 'next/navigation';
 import ProductNetValueManager from "@/components/products/ProductNetValueManager";
 import useProductTags from '@/hooks/useProductTags';
 import useAuth from '@/hooks/useAuth';
 
-// 定义精准的编辑表单类型 🔥 新增 product_code
 interface EditFormData {
-    product_code: string; // 🔥 新增
+    product_code: string;
     product_name: string;
     score: number;
     product_desc: string;
@@ -19,13 +18,14 @@ interface EditFormData {
     quant_type: number;
     algorithm: number;
     strategy: number;
+    fof_own?: number;
+    custom_tag_ids: number[];
 }
 
 interface ProductDetailClientProps {
     initialProductId: string;
 }
 
-// 错误信息安全获取
 const getErrorMessage = (err: unknown): string => {
     if (err instanceof Error) return err.message;
     if (typeof err === 'object' && err !== null && 'message' in err) {
@@ -35,13 +35,12 @@ const getErrorMessage = (err: unknown): string => {
 };
 
 export default function ProductDetailClient({ initialProductId }: ProductDetailClientProps) {
-    // 基础状态
     const [product, setProduct] = useState<Product | null>(null);
     const [netValues, setNetValues] = useState<ProductNetValue[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    const [chartStartDate, setChartStartDate] = useState<string>(''); // 图表专用开始时间
-    const [chartEndDate, setChartEndDate] = useState<string>('');     // 图表专用结束时间
+    const [chartStartDate, setChartStartDate] = useState<string>('');
+    const [chartEndDate, setChartEndDate] = useState<string>('');
     const [downloading, setDownloading] = useState<boolean>(false);
     const [importing, setImporting] = useState<boolean>(false);
     const [fileInputRef, setFileInputRef] = useState<HTMLInputElement | null>(null);
@@ -56,19 +55,22 @@ export default function ProductDetailClient({ initialProductId }: ProductDetailC
         message: string;
     } | null>(null);
 
-    // 编辑相关状态
     const [isEditing, setIsEditing] = useState(false);
     const [editForm, setEditForm] = useState<EditFormData | null>(null);
     const [saving, setSaving] = useState(false);
     const [editError, setEditError] = useState<string | null>(null);
 
-    // 加载标签数据
     const { tags, tagsLoading } = useProductTags();
     const [refreshKey, setRefreshKey] = useState(0);
     const handleRefreshChart = () => {
         setRefreshKey(prev => prev + 1);
     };
-    // 加载产品数据
+
+    // 辅助：从 CustomTag[] 提取 ID 数组
+    const getTagIds = (tags?: CustomTag[]): number[] => {
+        return tags?.map(tag => tag.id) || [];
+    };
+
     useEffect(() => {
         const fetchProductData = async () => {
             setLoading(true);
@@ -87,7 +89,7 @@ export default function ProductDetailClient({ initialProductId }: ProductDetailC
                 setProduct(productRes);
                 setNetValues(netValuesRes.results);
 
-                // 初始化编辑表单 🔥 新增 product_code
+                // 🔥 修复：明确转换 CustomTag[] -> number[]
                 setEditForm({
                     product_code: productRes.product_code || '',
                     product_name: productRes.product_name,
@@ -97,6 +99,8 @@ export default function ProductDetailClient({ initialProductId }: ProductDetailC
                     quant_type: Number(productRes.quant_type),
                     algorithm: Number(productRes.algorithm),
                     strategy: Number(productRes.strategy),
+                    fof_own: productRes.fof_own  ? Number(productRes.fof_own ) : undefined,
+                    custom_tag_ids: getTagIds(productRes.custom_tags), // 🔥 明确转换
                 });
 
                 setError(null);
@@ -111,7 +115,6 @@ export default function ProductDetailClient({ initialProductId }: ProductDetailC
         fetchProductData();
     }, [initialProductId]);
 
-    // 🔥 图表时间筛选逻辑（核心！）
     const getFilteredChartData = () => {
         let filtered = [...netValues];
         if (chartStartDate) {
@@ -126,7 +129,7 @@ export default function ProductDetailClient({ initialProductId }: ProductDetailC
         setChartStartDate('');
         setChartEndDate('');
     };
-    // 编辑模式切换
+
     const handleEditClick = () => {
         if (!editForm) {
             setEditError('产品数据未加载完成，暂无法编辑');
@@ -136,7 +139,6 @@ export default function ProductDetailClient({ initialProductId }: ProductDetailC
         setEditError(null);
     };
 
-    // 取消编辑
     const handleCancelEdit = () => {
         setIsEditing(false);
         if (product) {
@@ -149,11 +151,12 @@ export default function ProductDetailClient({ initialProductId }: ProductDetailC
                 quant_type: Number(product.quant_type),
                 algorithm: Number(product.algorithm),
                 strategy: Number(product.strategy),
+                fof_own: product.fof_own  ? Number(product.fof_own ) : undefined,
+                custom_tag_ids: getTagIds(product.custom_tags), // 🔥 明确转换
             });
         }
     };
 
-    // 保存编辑
     const handleSaveEdit = async () => {
         if (!product || !editForm) {
             setEditError('产品数据未加载完成，无法保存');
@@ -190,6 +193,8 @@ export default function ProductDetailClient({ initialProductId }: ProductDetailC
                 quant_type: editForm.quant_type,
                 algorithm: editForm.algorithm,
                 strategy: editForm.strategy,
+                fof_own: editForm.fof_own,
+                custom_tag_ids: editForm.custom_tag_ids,
             });
 
             setProduct(updatedProduct);
@@ -202,6 +207,8 @@ export default function ProductDetailClient({ initialProductId }: ProductDetailC
                 quant_type: Number(updatedProduct.quant_type),
                 algorithm: Number(updatedProduct.algorithm),
                 strategy: Number(updatedProduct.strategy),
+                fof_own: updatedProduct.fof_own ?? undefined,
+                custom_tag_ids: getTagIds(updatedProduct.custom_tags),
             });
             setIsEditing(false);
             setImportTip({ type: 'success', message: '产品信息修改成功！' });
@@ -213,23 +220,36 @@ export default function ProductDetailClient({ initialProductId }: ProductDetailC
         }
     };
 
-    // 表单变更
-    const handleFormChange = (field: keyof EditFormData, value: string | number) => {
+    // 处理自定义标签多选
+    const handleCustomTagChange = (tagId: number, checked: boolean) => {
         if (!editForm) return;
-
-        let processedValue: string | number = value;
-        if (['score', 'cycle', 'quant_type', 'algorithm', 'strategy'].includes(field)) {
-            processedValue = Number(value);
-        }
-
         setEditForm(prev => {
             if (!prev) return prev;
-            return { ...prev, [field]: processedValue as EditFormData[typeof field] };
+            if (checked) {
+                return { ...prev, custom_tag_ids: [...prev.custom_tag_ids, tagId] };
+            } else {
+                return { ...prev, custom_tag_ids: prev.custom_tag_ids.filter(id => id !== tagId) };
+            }
+        });
+    };
+
+    const handleFormChange = (field: keyof Omit<EditFormData, 'custom_tag_ids'>, value: string | number) => {
+        if (!editForm) return;
+
+        let processedValue: string | number | undefined = value;
+        if (['score', 'cycle', 'quant_type', 'algorithm', 'strategy', 'fof_own'].includes(field)) {
+            processedValue = Number(value);
+        }
+        if (field === 'fof_own') {
+            processedValue = value === '' ? undefined : Number(value);
+        }
+        setEditForm(prev => {
+            if (!prev) return prev;
+            return { ...prev, [field]: processedValue };
         });
     };
 
     const closeImportTip = () => setImportTip(null);
-
     const parseImportErrorReason = (reason: string): string => {
         const match = reason.match(/string='([^']+)'/);
         return match ? match[1] : reason;
@@ -245,7 +265,6 @@ export default function ProductDetailClient({ initialProductId }: ProductDetailC
         }
     };
 
-    // 导出CSV（原有功能不变）
     const handleDownloadCSV = async () => {
         if (!product) return;
         setDownloading(true);
@@ -320,9 +339,10 @@ export default function ProductDetailClient({ initialProductId }: ProductDetailC
         quant_type: product.quant_type,
         algorithm: product.algorithm,
         strategy: product.strategy,
+        fof_own: product.fof_own,
+        custom_tag_ids: getTagIds(product.custom_tags), // 🔥 明确转换
     };
 
-    // 🔥 筛选后的图表数据（支持时间范围）
     const filteredChartData = getFilteredChartData();
     const chartSafeNetValues = filteredChartData
         .filter((item): item is ProductNetValue & { cumulative_unit_net_value: number } =>
@@ -348,7 +368,6 @@ export default function ProductDetailClient({ initialProductId }: ProductDetailC
                 </div>
             )}
 
-            {/* 产品信息模块（原有逻辑不变） */}
             <div className="bg-white rounded-lg border border-gray-200 p-6">
                 <div className="flex justify-between items-center mb-4">
                     <h1 className="text-2xl font-bold text-gray-800">
@@ -503,6 +522,76 @@ export default function ProductDetailClient({ initialProductId }: ProductDetailC
                         )}
                     </div>
 
+                    {/* FOF 归属标签 */}
+                    <div className="bg-gray-50 p-3 rounded">
+                        <p className="text-sm text-gray-500">FOF 归属</p>
+                        {isEditing ? (
+                            tagsLoading ? <p>加载中...</p> : (
+                                <select
+                                    value={safeEditForm.fof_own  || ''}
+                                    onChange={(e) => handleFormChange('fof_own', e.target.value)}
+                                    className="w-full mt-1 border border-gray-300 rounded px-2 py-1"
+                                >
+                                    <option value="">请选择（可选）</option>
+                                    {tags.fofOwnTags?.map(f => (
+                                        <option key={f.id} value={f.id}>{f.fof_name}</option>
+                                    ))}
+                                </select>
+                            )
+                        ) : (
+                            <p className="font-medium">{product.fof_own_name || '—'}</p>
+                        )}
+                    </div>
+
+                    {/* 自定义标签 */}
+                    <div className="bg-gray-50 p-3 rounded col-span-2">
+                        <p className="text-sm text-gray-500">自定义标签</p>
+                        {isEditing ? (
+                            tagsLoading ? <p>加载中...</p> : (
+                                <div className="flex flex-wrap gap-2 mt-1">
+                                    {tags.customTags?.map((tag: CustomTag) => (
+                                        <label key={tag.id} className="flex items-center gap-1 cursor-pointer">
+                                            <input
+                                                type="checkbox"
+                                                checked={safeEditForm.custom_tag_ids.includes(tag.id)}
+                                                onChange={(e) => handleCustomTagChange(tag.id, e.target.checked)}
+                                                className="rounded"
+                                            />
+                                            <span className={`px-2 py-1 rounded text-xs ${
+                                                tag.permission === 'public'
+                                                    ? 'bg-blue-100 text-blue-700'
+                                                    : 'bg-purple-100 text-purple-700'
+                                            }`}>
+                                                {tag.tag_name}
+                                                {tag.permission === 'private' && ' (私密)'}
+                                            </span>
+                                        </label>
+                                    ))}
+                                </div>
+                            )
+                        ) : (
+                            product.custom_tags && product.custom_tags.length > 0 ? (
+                                <div className="flex flex-wrap gap-2 mt-1">
+                                    {product.custom_tags.map((tag: CustomTag) => (
+                                        <span
+                                            key={tag.id}
+                                            className={`px-2 py-1 rounded text-xs ${
+                                                tag.permission === 'public'
+                                                    ? 'bg-blue-100 text-blue-700'
+                                                    : 'bg-purple-100 text-purple-700'
+                                            }`}
+                                        >
+                                            {tag.tag_name}
+                                            {tag.permission === 'private' && ' (私密)'}
+                                        </span>
+                                    ))}
+                                </div>
+                            ) : (
+                                <p className="text-sm text-gray-400 mt-1">暂无自定义标签</p>
+                            )
+                        )}
+                    </div>
+
                     <div className="bg-gray-50 p-3 rounded col-span-2">
                         <p className="text-sm text-gray-500">产品描述</p>
                         {isEditing ? (
@@ -517,7 +606,6 @@ export default function ProductDetailClient({ initialProductId }: ProductDetailC
                         )}
                     </div>
 
-                    {/* 净值导出（原有功能不变） */}
                     <div className="bg-gray-50 p-3 rounded col-span-2">
                         <p className="text-sm text-gray-500">净值导出</p>
                         <div className="flex gap-2 items-center">
@@ -539,12 +627,6 @@ export default function ProductDetailClient({ initialProductId }: ProductDetailC
                                     className="w-full border border-gray-300 rounded px-2 py-1 text-xs"
                                 />
                             </div>
-                            {/*<button*/}
-                            {/*    onClick={resetChartDate}*/}
-                            {/*    className="bg-gray-200 px-3 py-2 rounded text-sm hover:bg-gray-300"*/}
-                            {/*>*/}
-                            {/*    默认*/}
-                            {/*</button>*/}
                         </div>
                         <button
                             onClick={handleDownloadCSV}
@@ -557,11 +639,9 @@ export default function ProductDetailClient({ initialProductId }: ProductDetailC
                 </div>
             </div>
 
-            {/* 🔥 净值曲线模块 + 时间筛选器（核心功能） */}
             <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-8">
                 <div className="flex justify-between items-center mb-6">
                     <h2 className="text-xl font-semibold">净值曲线</h2>
-                    {/* 🔥 图表时间筛选器 + 默认按钮 */}
                     <div className="flex gap-3 items-center">
                         <input
                             type="date"
@@ -611,7 +691,6 @@ export default function ProductDetailClient({ initialProductId }: ProductDetailC
                     )}
                 </div>
 
-                {/* 🔥 传入筛选后的图表数据 */}
                 <NetValueChart
                     key={refreshKey}
                     netValues={chartSafeNetValues}
@@ -620,8 +699,6 @@ export default function ProductDetailClient({ initialProductId }: ProductDetailC
                 />
             </div>
 
-
-            {/* 净值管理列表（原有逻辑不变） */}
             <ProductNetValueManager initialProductId={initialProductId} />
         </div>
     );

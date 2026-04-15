@@ -27,13 +27,15 @@ export default function CorrelationBoard() {
     const [productError, setProductError] = useState<string | null>(null);
     const [correlationError, setCorrelationError] = useState<string | null>(null);
 
-    // 筛选状态（和净值管理一致）
+    // 🔥 修复：新增 custom 和 fof_own 筛选字段
     const [filters, setFilters] = useState<ProductFilterParams>({
         search: '',
         cycle: '',
         quant_type: '',
         algorithm: '',
         strategy: '',
+        fof_own: '',
+        custom: '',
     });
 
     // 标签数据（复用净值管理的hooks）
@@ -94,6 +96,8 @@ export default function CorrelationBoard() {
                 if (filters.quant_type) params.quant_type = filters.quant_type;
                 if (filters.algorithm) params.algorithm = filters.algorithm;
                 if (filters.strategy) params.strategy = filters.strategy;
+                if (filters.fof_own) params.fof_own = filters.fof_own; // 🔥 新增
+                if (filters.custom) params.custom = filters.custom; // 🔥 新增
                 if (filters.search) params.search = filters.search;
 
                 const res: ApiResponse<Product> = await productApi.getProducts(params);
@@ -125,12 +129,20 @@ export default function CorrelationBoard() {
         setFilters(prev => ({ ...prev, [name]: value }));
     };
 
-    // 3. 重置筛选条件
+    // 🔥 修复：重置时包含 custom 和 fof_own
     const handleResetFilter = () => {
-        setFilters({ search: '', cycle: '', quant_type: '', algorithm: '', strategy: '' });
+        setFilters({
+            search: '',
+            cycle: '',
+            quant_type: '',
+            algorithm: '',
+            strategy: '',
+            fof_own: '',
+            custom: '',
+        });
     };
 
-    // 4. 产品选择/取消逻辑
+    // 3. 产品选择/取消逻辑
     const handleToggleProduct = (productId: number) => {
         setSelectedProductIds(prev =>
             prev.includes(productId)
@@ -139,7 +151,7 @@ export default function CorrelationBoard() {
         );
     };
 
-    // 5. 移除单个已选产品
+    // 4. 移除单个已选产品
     const handleRemoveProduct = (productId: number) => {
         setSelectedProductIds(prev => prev.filter(id => id !== productId));
     };
@@ -165,7 +177,7 @@ export default function CorrelationBoard() {
         setSelectedProductIds(newSelectedIds);
     };
 
-    // 6. 查询相关性数据
+    // 5. 查询相关性数据
     const handleQueryCorrelation = async () => {
         if (selectedProductIds.length < 2) {
             setCorrelationError("请至少选择2个产品");
@@ -194,13 +206,13 @@ export default function CorrelationBoard() {
         }
     };
 
-    // 7. 辅助函数：获取产品名称
+    // 6. 辅助函数：获取产品名称
     const getProductName = (productId: number): string => {
         const product = allProducts.find(p => p.id === productId);
         return product ? `${product.product_name} (ID: ${product.id})` : `产品${productId} (ID: ${productId})`;
     };
 
-    // 8. 辅助函数：获取相关系数
+    // 7. 辅助函数：获取相关系数
     const getCorrelationValue = (productAId: number, productBId: number): number | null => {
         let item = correlationData.find(c => c.product1 === productAId && c.product2 === productBId);
         if (!item) {
@@ -224,7 +236,8 @@ export default function CorrelationBoard() {
 
             {/* 1. 筛选区域 */}
             <div className="mb-8 p-5 border border-slate-200 rounded-xl bg-white shadow-md hover:shadow-lg transition-shadow duration-300">
-                <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-5">
+                {/* 🔥 修复：从 5 列改为 7 列布局 */}
+                <div className="grid grid-cols-1 md:grid-cols-7 gap-4 mb-5">
                     {/* 产品名称搜索 */}
                     <div className="flex flex-col gap-1.5">
                         <label className="text-xs font-semibold text-slate-600 tracking-wide">产品名称</label>
@@ -300,9 +313,51 @@ export default function CorrelationBoard() {
                         )}
                     </div>
 
-                    {/* 策略类型 + 重置按钮 */}
+                    {/* 策略类型 */}
                     <div className="flex flex-col gap-1.5">
                         <label className="text-xs font-semibold text-slate-600 tracking-wide">策略类型</label>
+                        {tagsLoading ? (
+                            <div className="flex items-center justify-center px-4 py-2.5 border border-slate-200 rounded-lg text-sm text-slate-500 bg-slate-50 animate-pulse">加载中...</div>
+                        ) : tagsError ? (
+                            <div className="text-xs text-red-600 p-2 bg-red-50 rounded-lg">{tagsError}</div>
+                        ) : (
+                            <select
+                                value={filters.strategy}
+                                onChange={(e) => handleFilterChange('strategy', e.target.value)}
+                                className="px-4 py-2.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 bg-white transition-all duration-200 appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2020%2020%22%3E%3Cpath%20stroke%3D%22%236b7280%22%20strokeLinecap%3D%22round%22%20strokeLinejoin%3D%22round%22%20strokeWidth%3D%221.5%22%20d%3D%22M6%208l4%204%204-4%22%2F%3E%3C%2Fsvg%3E')] bg-[right_0.75rem_center] bg-no-repeat pr-8"
+                            >
+                                <option value="">全部</option>
+                                {tags.strategies.map((strategy) => (
+                                    <option key={strategy.id} value={strategy.id.toString()} className="py-2">{strategy.strategy_name}</option>
+                                ))}
+                            </select>
+                        )}
+                    </div>
+
+                    {/* 🔥 新增：FOF 归属筛选 */}
+                    <div className="flex flex-col gap-1.5">
+                        <label className="text-xs font-semibold text-slate-600 tracking-wide">FOF 归属</label>
+                        {tagsLoading ? (
+                            <div className="flex items-center justify-center px-4 py-2.5 border border-slate-200 rounded-lg text-sm text-slate-500 bg-slate-50 animate-pulse">加载中...</div>
+                        ) : tagsError ? (
+                            <div className="text-xs text-red-600 p-2 bg-red-50 rounded-lg">{tagsError}</div>
+                        ) : (
+                            <select
+                                value={filters.fof_own}
+                                onChange={(e) => handleFilterChange('fof_own', e.target.value)}
+                                className="px-4 py-2.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 bg-white transition-all duration-200 appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2020%2020%22%3E%3Cpath%20stroke%3D%22%236b7280%22%20strokeLinecap%3D%22round%22%20strokeLinejoin%3D%22round%22%20strokeWidth%3D%221.5%22%20d%3D%22M6%208l4%204%204-4%22%2F%3E%3C%2Fsvg%3E')] bg-[right_0.75rem_center] bg-no-repeat pr-8"
+                            >
+                                <option value="">全部</option>
+                                {tags.fofOwnTags?.map((fof) => (
+                                    <option key={fof.id} value={fof.id.toString()} className="py-2">{fof.fof_name}</option>
+                                ))}
+                            </select>
+                        )}
+                    </div>
+
+                    {/* 🔥 新增：自定义标签筛选 + 重置按钮 */}
+                    <div className="flex flex-col gap-1.5">
+                        <label className="text-xs font-semibold text-slate-600 tracking-wide">自定义标签</label>
                         <div className="flex gap-2.5">
                             {tagsLoading ? (
                                 <div className="flex-1 flex items-center justify-center px-4 py-2.5 border border-slate-200 rounded-lg text-sm text-slate-500 bg-slate-50 animate-pulse">加载中...</div>
@@ -310,13 +365,13 @@ export default function CorrelationBoard() {
                                 <div className="flex-1 text-xs text-red-600 p-2 bg-red-50 rounded-lg">{tagsError}</div>
                             ) : (
                                 <select
-                                    value={filters.strategy}
-                                    onChange={(e) => handleFilterChange('strategy', e.target.value)}
+                                    value={filters.custom}
+                                    onChange={(e) => handleFilterChange('custom', e.target.value)}
                                     className="flex-1 px-4 py-2.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 bg-white transition-all duration-200 appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2020%2020%22%3E%3Cpath%20stroke%3D%22%236b7280%22%20strokeLinecap%3D%22round%22%20strokeLinejoin%3D%22round%22%20strokeWidth%3D%221.5%22%20d%3D%22M6%208l4%204%204-4%22%2F%3E%3C%2Fsvg%3E')] bg-[right_0.75rem_center] bg-no-repeat pr-8"
                                 >
                                     <option value="">全部</option>
-                                    {tags.strategies.map((strategy) => (
-                                        <option key={strategy.id} value={strategy.id.toString()} className="py-2">{strategy.strategy_name}</option>
+                                    {tags.customTags?.map((tag) => (
+                                        <option key={tag.id} value={tag.id.toString()} className="py-2">{tag.tag_name}</option>
                                     ))}
                                 </select>
                             )}
@@ -514,7 +569,7 @@ export default function CorrelationBoard() {
                 <div className="border border-slate-200 rounded-xl bg-white p-5 shadow-md hover:shadow-lg transition-shadow duration-300 overflow-x-auto">
                     <h2 className="font-semibold mb-5 text-slate-800 flex items-center gap-2 text-lg">
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V9a2 2 0 012-2h2a2 2 0 012 2v10" />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V9a2 0 012-2h2a2 2 0 012 2v10" />
                         </svg>
                         产品相关性矩阵
                     </h2>

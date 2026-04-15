@@ -1,20 +1,29 @@
 import { ChangeEvent } from 'react';
-import { CycleTag, QuantType, AlgorithmType, StrategyType, ProductFilterParams } from '@/lib/types';
+import {
+    CycleTag,
+    QuantType,
+    AlgorithmType,
+    StrategyType,
+    FofOwnTag,
+    CustomTag, // 导入自定义标签类型
+    ProductFilterParams
+} from '@/lib/types';
 
-// 组件 Props 类型：使用 ProductFilterParams 替代 typeof filters
+// 完整匹配 TagsState 类型
 interface ProductFilterProps {
     tags: {
         cycles: CycleTag[];
         quantTypes: QuantType[];
         algorithms: AlgorithmType[];
         strategies: StrategyType[];
+        fofOwnTags: FofOwnTag[];
+        customTags: CustomTag[]; // 自定义标签
     };
-    filters: ProductFilterParams; // 直接使用定义好的类型
-    onFilterChange: (filters: Partial<ProductFilterParams>) => void; // 这里不再自引用
+    filters: ProductFilterParams;
+    onFilterChange: (filters: Partial<ProductFilterParams>) => void;
 }
 
 export default function ProductFilter({ tags, filters, onFilterChange }: ProductFilterProps) {
-    // 原有逻辑不变，仅类型注解修复
     const handleSearchChange = (e: ChangeEvent<HTMLInputElement>) => {
         onFilterChange({ search: e.target.value });
     };
@@ -23,21 +32,23 @@ export default function ProductFilter({ tags, filters, onFilterChange }: Product
         onFilterChange({ [name]: value });
     };
 
+    // 重置所有筛选（包含 custom）
     const handleReset = () => {
         onFilterChange({
             cycle: '',
             quant_type: '',
             algorithm: '',
             strategy: '',
+            fof_own: '',
+            custom: '',
             search: '',
         });
     };
 
-    // 渲染逻辑不变...
     return (
         <div className="space-y-4">
-            <h3>筛选条件</h3>
-            <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
+            <h3 className="text-sm font-medium text-gray-700">筛选条件</h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-7 gap-4">
                 {/* 搜索框 */}
                 <div className="md:col-span-2">
                     <label className="block text-sm font-medium text-gray-700 mb-1">产品名称搜索</label>
@@ -50,7 +61,7 @@ export default function ProductFilter({ tags, filters, onFilterChange }: Product
                     />
                 </div>
 
-                {/* 周期标签筛选 */}
+                {/* 周期标签 */}
                 <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">周期标签</label>
                     <select
@@ -67,11 +78,9 @@ export default function ProductFilter({ tags, filters, onFilterChange }: Product
                     </select>
                 </div>
 
-                {/* 其他筛选框逻辑不变... */}
-                {/* 量化类型、算法类型、策略类型筛选框代码保留 */}
-                {/* ... */}
+                {/* 量化类型 */}
                 <div>
-                    <label className="block text-sm font-medium text-gray-dark mb-1">量化类型</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">量化类型</label>
                     <select
                         value={filters.quant_type}
                         onChange={(e) => handleSelectChange('quant_type', e.target.value)}
@@ -86,9 +95,9 @@ export default function ProductFilter({ tags, filters, onFilterChange }: Product
                     </select>
                 </div>
 
-                {/* 算法类型筛选 */}
+                {/* 算法类型 */}
                 <div>
-                    <label className="block text-sm font-medium text-gray-dark mb-1">算法类型</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">算法类型</label>
                     <select
                         value={filters.algorithm}
                         onChange={(e) => handleSelectChange('algorithm', e.target.value)}
@@ -103,22 +112,62 @@ export default function ProductFilter({ tags, filters, onFilterChange }: Product
                     </select>
                 </div>
 
-                <div className="md:col-span-3 lg:col-span-2 lg:col-start-4">
-                    <label className="block text-sm font-medium text-gray-dark mb-1">策略类型</label>
+                {/* 策略类型 */}
+                <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">策略类型</label>
+                    <select
+                        value={filters.strategy}
+                        onChange={(e) => handleSelectChange('strategy', e.target.value)}
+                        className="select-field"
+                    >
+                        <option value="">全部</option>
+                        {tags.strategies.map((strategy) => (
+                            <option key={strategy.id} value={strategy.id.toString()}>
+                                {strategy.strategy_name}
+                            </option>
+                        ))}
+                    </select>
+                </div>
+
+                {/* FOF 归属 */}
+                <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">FOF 归属</label>
+                    <select
+                        value={filters.fof_own ?? ''}
+                        onChange={(e) => handleSelectChange('fof_own', e.target.value)}
+                        className="select-field"
+                    >
+                        <option value="">全部</option>
+                        {tags.fofOwnTags.map((fof) => (
+                            <option key={fof.id} value={fof.id.toString()}>
+                                {fof.fof_name}
+                            </option>
+                        ))}
+                    </select>
+                </div>
+
+                {/* 🔥 新增：CustomTag 自定义标签筛选 */}
+                <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">自定义标签</label>
+                    <select
+                        value={filters.custom}
+                        onChange={(e) => handleSelectChange('custom', e.target.value)}
+                        className="select-field"
+                    >
+                        <option value="">全部</option>
+                        {tags.customTags.map((item) => (
+                            <option key={item.id} value={item.id.toString()}>
+                                {item.tag_name}
+                            </option>
+                        ))}
+                    </select>
+                </div>
+
+                {/* 操作按钮 */}
+                <div className="md:col-span-2 lg:col-span-2 lg:col-start-6">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">操作</label>
                     <div className="flex space-x-2">
-                        <select
-                            value={filters.strategy}
-                            onChange={(e) => handleSelectChange('strategy', e.target.value)}
-                            className="select-field flex-1"
-                        >
-                            <option value="">全部</option>
-                            {tags.strategies.map((strategy) => (
-                                <option key={strategy.id} value={strategy.id.toString()}>
-                                    {strategy.strategy_name}
-                                </option>
-                            ))}
-                        </select>
-                        <button onClick={handleReset} className="btn-secondary">
+                        <button onClick={handleReset} className="btn-secondary flex-1">
                             重置筛选
                         </button>
                     </div>

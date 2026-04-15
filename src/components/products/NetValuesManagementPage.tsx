@@ -1,3 +1,4 @@
+//src/components/products/NetValuesManagementPage.tsx
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import * as echarts from 'echarts';
@@ -72,7 +73,7 @@ const STYLES: Record<string, CSSProperties> = {
     container: { padding: '16px', marginBottom: '24px', backgroundColor: '#f9fafb', minHeight: '100vh' },
     title: { fontSize: '24px', fontWeight: '600', color: '#1f2937', marginBottom: '24px' },
     filterCard: { border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px', backgroundColor: '#ffffff', marginBottom: '16px' },
-    filterGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr 1fr', gap: '12px', marginBottom: '16px' },
+    filterGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr 1fr 1fr 1fr', gap: '12px', marginBottom: '16px' }, // 🔥 修复：7列布局（新增custom）
     filterItem: { display: 'flex', flexDirection: 'column', gap: '4px' },
     filterLabel: { fontSize: '12px', fontWeight: '500', color: '#4b5563' },
     filterInput: { padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '14px', color: '#1f2937' },
@@ -121,12 +122,16 @@ export default function NetValuesManagementPage() {
     const [productError, setProductError] = useState<string | null>(null);
     const [chartError, setChartError] = useState<string | null>(null);
     const [legendVisible, setLegendVisible] = useState<boolean>(false);
+
+    // 🔥 修复：新增 custom 自定义标签筛选字段
     const [filters, setFilters] = useState<ProductFilterParams>({
         search: '',
         cycle: '',
         quant_type: '',
         algorithm: '',
         strategy: '',
+        fof_own: '',
+        custom: '', // 🔥 新增
     });
 
     const { tags, tagsLoading, tagsError } = useProductTags();
@@ -219,6 +224,8 @@ export default function NetValuesManagementPage() {
                 if (filters.quant_type) params.quant_type = filters.quant_type;
                 if (filters.algorithm) params.algorithm = filters.algorithm;
                 if (filters.strategy) params.strategy = filters.strategy;
+                if (filters.fof_own) params.fof_own = filters.fof_own;
+                if (filters.custom) params.custom = filters.custom; // 🔥 新增
                 if (filters.search) params.search = filters.search;
 
                 const res: ApiResponse<Product> = await productApi.getProducts(params);
@@ -262,7 +269,6 @@ export default function NetValuesManagementPage() {
                 // 基准产品：加载累计单位净值
                 if (selectedBenchmark) {
                     const res: NetValueApiResponse<ProductNetValue> = await productApi.getNetValuesByProductId(selectedBenchmark.id);
-                    // 🔥 核心修改：使用 cumulative_unit_net_value（累计单位净值）
                     const validNetValues = res.results?.filter((item: ProductNetValue) => {
                         const val = Number(item.cumulative_unit_net_value);
                         return !!item.net_value_date && !isNaN(val) && val >= 0;
@@ -284,7 +290,6 @@ export default function NetValuesManagementPage() {
                 // 对比产品：加载累计单位净值
                 for (const product of selectedCompares) {
                     const res: NetValueApiResponse<ProductNetValue> = await productApi.getNetValuesByProductId(product.id);
-                    // 🔥 核心修改：使用 cumulative_unit_net_value（累计单位净值）
                     const validNetValues = res.results?.filter((item: ProductNetValue) => {
                         const val = Number(item.cumulative_unit_net_value);
                         return !!item.net_value_date && !isNaN(val) && val >= 0;
@@ -325,6 +330,7 @@ export default function NetValuesManagementPage() {
         try {
             const allDates = new Set<string>();
             chartProductList.forEach(p => p.netValues.forEach(nv => allDates.add(nv.date)));
+
             const sortedDates = Array.from(allDates).sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
             const xAxisData = sortedDates.map(formatDate);
 
@@ -403,13 +409,23 @@ export default function NetValuesManagementPage() {
         }
     }, [chartProductList, chartLoading]);
 
+
     // ====================== 交互事件 ======================
     const handleFilterChange = (name: keyof ProductFilterParams, value: string) => {
         setFilters(prev => ({ ...prev, [name]: value }));
     };
 
+    // 🔥 修复：重置时包含 custom
     const handleResetFilter = () => {
-        setFilters({ search: '', cycle: '', quant_type: '', algorithm: '', strategy: '' });
+        setFilters({
+            search: '',
+            cycle: '',
+            quant_type: '',
+            algorithm: '',
+            strategy: '',
+            fof_own: '',
+            custom: '', // 🔥 新增
+        });
     };
 
     const handleSelectBenchmark = (product: Product) => {
@@ -497,19 +513,54 @@ export default function NetValuesManagementPage() {
                     </div>
                     <div style={STYLES.filterItem}>
                         <label style={STYLES.filterLabel}>策略类型</label>
+                        {tagsLoading ? (
+                            <div style={STYLES.placeholder}>加载中...</div>
+                        ) : tagsError ? (
+                            <div style={{ color: '#dc2626', fontSize: '12px' }}>{tagsError}</div>
+                        ) : (
+                            <select value={filters.strategy} onChange={(e) => handleFilterChange('strategy', e.target.value)} style={STYLES.filterSelect}>
+                                <option value="">全部</option>
+                                {tags.strategies.map((strategy) => (
+                                    <option key={strategy.id} value={strategy.id.toString()}>{strategy.strategy_name}</option>
+                                ))}
+                            </select>
+                        )}
+                    </div>
+                    {/* 🔥 新增：FOF 归属筛选 */}
+                    <div style={STYLES.filterItem}>
+                        <label style={STYLES.filterLabel}>FOF 归属</label>
+                        {tagsLoading ? (
+                            <div style={STYLES.placeholder}>加载中...</div>
+                        ) : tagsError ? (
+                            <div style={{ color: '#dc2626', fontSize: '12px' }}>{tagsError}</div>
+                        ) : (
+                            <select value={filters.fof_own} onChange={(e) => handleFilterChange('fof_own', e.target.value)} style={STYLES.filterSelect}>
+                                <option value="">全部</option>
+                                {tags.fofOwnTags?.map((fof) => (
+                                    <option key={fof.id} value={fof.id.toString()}>{fof.fof_name}</option>
+                                ))}
+                            </select>
+                        )}
+                    </div>
+                    {/* 🔥 新增：自定义标签筛选 */}
+                    <div style={STYLES.filterItem}>
+                        <label style={STYLES.filterLabel}>自定义标签</label>
+                        {tagsLoading ? (
+                            <div style={STYLES.placeholder}>加载中...</div>
+                        ) : tagsError ? (
+                            <div style={{ color: '#dc2626', fontSize: '12px' }}>{tagsError}</div>
+                        ) : (
+                            <select value={filters.custom} onChange={(e) => handleFilterChange('custom', e.target.value)} style={STYLES.filterSelect}>
+                                <option value="">全部</option>
+                                {tags.customTags?.map((item) => (
+                                    <option key={item.id} value={item.id.toString()}>{item.tag_name}</option>
+                                ))}
+                            </select>
+                        )}
+                    </div>
+                    <div style={STYLES.filterItem}>
+                        <label style={STYLES.filterLabel}>操作</label>
                         <div style={{ display: 'flex', gap: '8px' }}>
-                            {tagsLoading ? (
-                                <div style={{ ...STYLES.placeholder, flex: 1, height: '36px' }}>加载中...</div>
-                            ) : tagsError ? (
-                                <div style={{ color: '#dc2626', fontSize: '12px', flex: 1 }}>{tagsError}</div>
-                            ) : (
-                                <select value={filters.strategy} onChange={(e) => handleFilterChange('strategy', e.target.value)} style={{ ...STYLES.filterSelect, flex: 1 }}>
-                                    <option value="">全部</option>
-                                    {tags.strategies.map((strategy) => (
-                                        <option key={strategy.id} value={strategy.id.toString()}>{strategy.strategy_name}</option>
-                                    ))}
-                                </select>
-                            )}
                             <button onClick={handleResetFilter} style={STYLES.resetBtn}>重置</button>
                         </div>
                     </div>

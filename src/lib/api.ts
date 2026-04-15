@@ -1,8 +1,9 @@
+//api.ts
 import axios from 'axios';
 import {
     ApiResponse, CycleTag, Product, ProductFormData, QuantType,
     AlgorithmType, StrategyType, ProductNetValue, ProductCorrelation,
-    NetValueApiResponse, CsvImportResponse, SingleNetValueRequest, UserInfo
+    NetValueApiResponse, CsvImportResponse, SingleNetValueRequest, UserInfo, FofOwnTag, CustomTag  // 🔥 新增
 } from './types';
 
 // axios实例配置（对齐后端路由，无/api前缀）
@@ -155,6 +156,36 @@ export const tagApi = {
     },
     deleteStrategy: async (id: number): Promise<void> => {
         await api.delete(`/strategies/${id}/`);
+    },
+    getFofOwnTags: async (): Promise<ApiResponse<FofOwnTag>> => {
+        const res = await api.get<ApiResponse<FofOwnTag>>('/fof-tags/');
+        return res.data;
+    },
+    createFofOwnTag: async (data: Partial<FofOwnTag>): Promise<FofOwnTag> => {
+        const res = await api.post<FofOwnTag>('/fof-tags/', data);
+        return res.data;
+    },
+    updateFofOwnTag: async (id: number, data: Partial<FofOwnTag>): Promise<FofOwnTag> => {
+        const res = await api.patch<FofOwnTag>(`/fof-tags/${id}/`, data);
+        return res.data;
+    },
+    deleteFofOwnTag: async (id: number): Promise<void> => {
+        await api.delete(`/fof-tags/${id}/`);
+    },
+    getCustomTags: async (): Promise<ApiResponse<CustomTag>> => {
+        const res = await api.get<ApiResponse<CustomTag>>('/custom-tags/');
+        return res.data;
+    },
+    createCustomTag: async (data: Partial<CustomTag>): Promise<CustomTag> => {
+        const res = await api.post<CustomTag>('/custom-tags/', data);
+        return res.data;
+    },
+    updateCustomTag: async (id: number, data: Partial<CustomTag>): Promise<CustomTag> => {
+        const res = await api.patch<CustomTag>(`/custom-tags/${id}/`, data);
+        return res.data;
+    },
+    deleteCustomTag: async (id: number): Promise<void> => {
+        await api.delete(`/custom-tags/${id}/`);
     },
 };
 

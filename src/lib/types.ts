@@ -1,3 +1,4 @@
+//types.ts
 export interface CycleTag {
     id: number;
     cycle_name: string;
@@ -5,7 +6,26 @@ export interface CycleTag {
     create_time?: string;
     update_time?: string;
 }
+export interface FofOwnTag {
+    id: number;
+    fof_name: string;
+    fof_desc: string | null;
+    create_time?: string;
+    update_time?: string;
+}
 
+export interface CustomTag {
+    id: number;
+    tag_name: string;
+    tag_desc?: string;
+    permission: 'public' | 'private';
+    full_path: string;
+    parent?: number | null;
+    children?: CustomTag[];
+    username?: string;
+    create_time: string;
+    update_time: string;
+}
 export interface QuantType {
     id: number;
     quant_name: string;
@@ -73,6 +93,10 @@ export interface Product {
     algorithm_name: string;
     strategy: number;
     strategy_name: string;
+    fof_own?: number;
+    fof_own_name?: string;
+    custom_tags?: CustomTag[];
+    custom_tag_ids?: number[];
     score: number | string;
     product_desc: string | null;
     is_valid: boolean;
@@ -87,6 +111,7 @@ export interface ProductFormData {
     quant_type_name_input: string;
     algorithm_name_input: string;
     strategy_name_input: string;
+    fof_own_name_input?: string;
     score: number;
     product_desc: string;
 }
@@ -108,7 +133,9 @@ export interface ProductFilterParams {
     quant_type: string;
     algorithm: string;
     strategy: string;
+    fof_own: string;
     search: string;
+    custom: string;
     is_valid?: string;
 }
 
@@ -117,6 +144,8 @@ export interface TagsState {
     quantTypes: QuantType[];
     algorithms: AlgorithmType[];
     strategies: StrategyType[];
+    fofOwnTags: FofOwnTag[];
+    customTags: CustomTag[];
 }
 
 export interface CsvImportRowData {
