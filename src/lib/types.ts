@@ -93,7 +93,7 @@ export interface Product {
     algorithm_name: string;
     strategy: number;
     strategy_name: string;
-    fof_own?: number;
+    fof_own?: number | null;
     fof_own_name?: string;
     custom_tags?: CustomTag[];
     custom_tag_ids?: number[];

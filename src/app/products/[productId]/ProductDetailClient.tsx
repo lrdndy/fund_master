@@ -17,7 +17,7 @@ interface EditFormData {
     quant_type: number;
     algorithm: number;
     strategy: number;
-    fof_own?: number;
+    fof_own?: number | null;
     custom_tag_ids: number[];
 }
 
@@ -98,7 +98,7 @@ export default function ProductDetailClient({ initialProductId }: ProductDetailC
                     quant_type: Number(productRes.quant_type),
                     algorithm: Number(productRes.algorithm),
                     strategy: Number(productRes.strategy),
-                    fof_own: productRes.fof_own  ? Number(productRes.fof_own ) : undefined,
+                    fof_own: productRes.fof_own ? Number(productRes.fof_own) : undefined,
                     custom_tag_ids: getTagIds(productRes.custom_tags),
                 });
 
@@ -150,7 +150,7 @@ export default function ProductDetailClient({ initialProductId }: ProductDetailC
                 quant_type: Number(product.quant_type),
                 algorithm: Number(product.algorithm),
                 strategy: Number(product.strategy),
-                fof_own: product.fof_own  ? Number(product.fof_own ) : undefined,
+                fof_own: product.fof_own ? Number(product.fof_own) : undefined,
                 custom_tag_ids: getTagIds(product.custom_tags),
             });
         }
@@ -185,7 +185,7 @@ export default function ProductDetailClient({ initialProductId }: ProductDetailC
                 quant_type: editForm.quant_type,
                 algorithm: editForm.algorithm,
                 strategy: editForm.strategy,
-                fof_own: editForm.fof_own,
+                fof_own: editForm.fof_own ?? null,
                 custom_tag_ids: editForm.custom_tag_ids,
             });
 
@@ -228,12 +228,12 @@ export default function ProductDetailClient({ initialProductId }: ProductDetailC
     const handleFormChange = (field: keyof Omit<EditFormData, 'custom_tag_ids'>, value: string | number) => {
         if (!editForm) return;
 
-        let processedValue: string | number | undefined = value;
+        let processedValue: string | number | null | undefined = value;
         if (['score', 'cycle', 'quant_type', 'algorithm', 'strategy', 'fof_own'].includes(field)) {
             processedValue = Number(value);
         }
         if (field === 'fof_own') {
-            processedValue = value === '' ? undefined : Number(value);
+            processedValue = value === '' ? null : Number(value);
         }
         setEditForm(prev => {
             if (!prev) return prev;
@@ -522,7 +522,7 @@ export default function ProductDetailClient({ initialProductId }: ProductDetailC
                         {isEditing ? (
                             tagsLoading ? <p>加载中...</p> : (
                                 <select
-                                    value={safeEditForm.fof_own  || ''}
+                                    value={safeEditForm.fof_own  ?? ''}
                                     onChange={(e) => handleFormChange('fof_own', e.target.value)}
                                     className="w-full mt-1 border border-gray-300 rounded px-2 py-1"
                                 >
