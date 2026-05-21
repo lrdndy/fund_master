@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { productApi, downloadUtils, netValueApi } from '@/lib/api';
 import NetValueChart from '@/components/products/NetValueChart';
+import ProductMetrics from '@/components/products/ProductMetrics';
 import { Product, ProductNetValue, CustomTag } from '@/lib/types';
 import { notFound } from 'next/navigation';
 import ProductNetValueManager from "@/components/products/ProductNetValueManager";
@@ -631,6 +632,12 @@ export default function ProductDetailClient({ initialProductId }: ProductDetailC
                     </div>
                 </div>
             </div>
+
+            <ProductMetrics
+                netValues={netValues}
+                rangeStart={chartStartDate || undefined}
+                rangeEnd={chartEndDate || undefined}
+            />
 
             <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-8">
                 <div className="flex justify-between items-center mb-6">
