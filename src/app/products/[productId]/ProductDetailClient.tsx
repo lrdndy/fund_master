@@ -34,6 +34,18 @@ const getErrorMessage = (err: unknown): string => {
     return '操作失败，请重试';
 };
 
+// 取净值数据的最早/最晚日期（YYYY-MM-DD）
+const computeDateRange = (
+    items: { net_value_date: string | null }[]
+): { start: string; end: string } | null => {
+    const dates = items
+        .map(i => i.net_value_date)
+        .filter((d): d is string => !!d && !Number.isNaN(new Date(d).getTime()))
+        .sort();
+    if (dates.length === 0) return null;
+    return { start: dates[0], end: dates[dates.length - 1] };
+};
+
 export default function ProductDetailClient({ initialProductId }: ProductDetailClientProps) {
     const [product, setProduct] = useState<Product | null>(null);
     const [netValues, setNetValues] = useState<ProductNetValue[]>([]);
@@ -89,6 +101,13 @@ export default function ProductDetailClient({ initialProductId }: ProductDetailC
                 setProduct(productRes);
                 setNetValues(netValuesRes.results);
 
+                // 把日期框默认设为净值数据的最早/最晚日期
+                const range = computeDateRange(netValuesRes.results);
+                if (range) {
+                    setChartStartDate(range.start);
+                    setChartEndDate(range.end);
+                }
+
                 // 修复：明确转换 CustomTag[] -> number[]
                 setEditForm({
                     product_code: productRes.product_code || '',
@@ -126,8 +145,9 @@ export default function ProductDetailClient({ initialProductId }: ProductDetailC
         return filtered;
     };
     const resetChartDate = () => {
-        setChartStartDate('');
-        setChartEndDate('');
+        const range = computeDateRange(netValues);
+        setChartStartDate(range?.start ?? '');
+        setChartEndDate(range?.end ?? '');
     };
 
     const handleEditClick = () => {
@@ -253,6 +273,11 @@ export default function ProductDetailClient({ initialProductId }: ProductDetailC
         try {
             const res = await productApi.getNetValuesByProductId(product.id);
             setNetValues(res.results);
+            const range = computeDateRange(res.results);
+            if (range) {
+                setChartStartDate(range.start);
+                setChartEndDate(range.end);
+            }
         } catch (err) {
             console.error('刷新净值失败', err);
         }
