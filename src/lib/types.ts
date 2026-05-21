@@ -97,6 +97,7 @@ export interface Product {
     fof_own_name?: string;
     custom_tags?: CustomTag[];
     custom_tag_ids?: number[];
+    return_1m?: number | null;
     score: number | string;
     product_desc: string | null;
     is_valid: boolean;
