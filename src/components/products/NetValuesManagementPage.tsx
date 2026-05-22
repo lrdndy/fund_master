@@ -265,14 +265,15 @@ export default function NetValuesManagementPage() {
                 setFilteredProducts(prods);
                 if (!prods.length) return;
 
+                // 默认不预选基准产品；只在 localStorage 明确存了 ID 时恢复
                 const bId = localStorage.getItem(STORAGE_KEYS.BENCHMARK_ID);
                 const cIds = localStorage.getItem(STORAGE_KEYS.COMPARE_IDS);
-                const bench = bId ? prods.find(p => p.id === +bId) ?? prods[0] : prods[0];
+                const bench = bId ? prods.find(p => p.id === +bId) ?? null : null;
                 let comps: Product[] = [];
                 if (cIds) try { comps = prods.filter(p => JSON.parse(cIds).includes(p.id)); } catch {}
 
                 setSelectedBenchmark(bench);
-                setSelectedCompares(comps.length ? comps : prods.slice(1, 3));
+                setSelectedCompares(comps);
             } catch {
                 setProductError('产品加载失败');
             }
@@ -473,18 +474,22 @@ export default function NetValuesManagementPage() {
         return p.name;
     };
 
-    // 渲染净值图表
+    // 渲染净值图表（归一化到起点=1，便于产品净值与指数点位同框对比）
     const renderNetValue = () => {
         if (!netValueChart.current || !chartProductList.length) return;
         const dates = getAllDates();
         const x = dates.map(formatDate);
         const series = chartProductList.map((p, i) => {
             const s = getSeriesStyle(p.isBenchmark, i);
+            const base = p.netValues[0]?.value || 1;
             return {
                 name: displayName(p),
                 type: 'line' as const,
                 smooth: true,
-                data: dates.map(d => p.netValues.find(v => v.date === d)?.value),
+                data: dates.map(d => {
+                    const v = p.netValues.find(nv => nv.date === d)?.value;
+                    return v ? parseFloat((v / base).toFixed(4)) : undefined;
+                }),
                 lineStyle: { color: s.lineColor, width: s.width, type: s.lineType },
                 itemStyle: { color: s.itemColor },
                 symbol: 'circle' as const,
@@ -500,12 +505,16 @@ export default function NetValuesManagementPage() {
         });
 
         netValueChart.current.setOption({
-            title: { text: '累计单位净值', left: 'center', textStyle: { fontSize: 16, fontWeight: 'bold' } },
+            title: {
+                text: '累计净值（归一化，起点=1）',
+                left: 'center',
+                textStyle: { fontSize: 16, fontWeight: 'bold' },
+            },
             legend: { top: 40, left: 'center' },
-            tooltip: { trigger: 'axis' },
+            tooltip: { trigger: 'axis', valueFormatter: (v: unknown) => Number(v).toFixed(4) },
             grid: { left: '10%', right: '6%', bottom: '18%', top: '18%' },
             xAxis: { type: 'category', data: x, axisLabel: { rotate: 20 } },
-            yAxis: { type: 'value', name: '净值' },
+            yAxis: { type: 'value', name: '相对净值', scale: true, axisLabel: { formatter: (v: number) => v.toFixed(3) } },
             dataZoom: [{ type: 'slider', bottom: 5 }, { type: 'inside' }],
             series
         } as Record<string, unknown>, true);
