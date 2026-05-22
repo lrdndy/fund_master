@@ -400,34 +400,38 @@ export default function NetValuesManagementPage() {
                 .map(r => ({ date: r.net_value_date.trim(), value: +r.close_price }))
                 .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
+            const pushOrWarn = (label: string, entry: ChartProductData) => {
+                if (entry.netValues.length >= 2) {
+                    list.push(entry);
+                } else {
+                    console.warn(`[净值图] ${label} 在当前时间范围内有效数据点不足（${entry.netValues.length} 个），已跳过`);
+                }
+            };
+
             // 加载基准产品
             if (selectedBenchmark) {
                 const res = await productApi.getNetValuesByProductId(selectedBenchmark.id);
                 const nv = filterNetValuesByTime(toValid(res.results ?? []));
-                if (nv.length) {
-                    list.push({
-                        id: selectedBenchmark.id,
-                        name: selectedBenchmark.product_name || `产品${selectedBenchmark.id}`,
-                        isBenchmark: true,
-                        netValues: nv,
-                        drawdownValues: calculateMaxDrawdown(nv),
-                    });
-                }
+                pushOrWarn(selectedBenchmark.product_name || `产品${selectedBenchmark.id}`, {
+                    id: selectedBenchmark.id,
+                    name: selectedBenchmark.product_name || `产品${selectedBenchmark.id}`,
+                    isBenchmark: true,
+                    netValues: nv,
+                    drawdownValues: calculateMaxDrawdown(nv),
+                });
             }
 
             // 加载对比产品
             for (const p of selectedCompares) {
                 const res = await productApi.getNetValuesByProductId(p.id);
                 const nv = filterNetValuesByTime(toValid(res.results ?? []));
-                if (nv.length) {
-                    list.push({
-                        id: p.id,
-                        name: p.product_name || `产品${p.id}`,
-                        isBenchmark: false,
-                        netValues: nv,
-                        drawdownValues: calculateMaxDrawdown(nv),
-                    });
-                }
+                pushOrWarn(p.product_name || `产品${p.id}`, {
+                    id: p.id,
+                    name: p.product_name || `产品${p.id}`,
+                    isBenchmark: false,
+                    netValues: nv,
+                    drawdownValues: calculateMaxDrawdown(nv),
+                });
             }
 
             // 加载基准指数（已经缓存到 indexSeriesMap）
@@ -436,16 +440,14 @@ export default function NetValuesManagementPage() {
                 if (!cached) continue;
                 const idx = benchmarks.find(b => b.id === id);
                 const nv = filterNetValuesByTime(toValidIdx(cached));
-                if (nv.length) {
-                    list.push({
-                        id: -id, // 取负避免与产品 id 冲突
-                        name: idx?.index_short_name || idx?.index_name || `指数#${id}`,
-                        isBenchmark: true,
-                        isIndex: true,
-                        netValues: nv,
-                        drawdownValues: calculateMaxDrawdown(nv),
-                    });
-                }
+                pushOrWarn(idx?.index_short_name || idx?.index_name || `指数#${id}`, {
+                    id: -id, // 取负避免与产品 id 冲突
+                    name: idx?.index_short_name || idx?.index_name || `指数#${id}`,
+                    isBenchmark: true,
+                    isIndex: true,
+                    netValues: nv,
+                    drawdownValues: calculateMaxDrawdown(nv),
+                });
             }
 
             setChartProductList(list);
@@ -479,23 +481,28 @@ export default function NetValuesManagementPage() {
         if (!netValueChart.current || !chartProductList.length) return;
         const dates = getAllDates();
         const x = dates.map(formatDate);
+        // 多于一条线时不画区域填充，避免一条线被另一条的渐变面挡掉
+        const showArea = chartProductList.length === 1;
         const series = chartProductList.map((p, i) => {
             const s = getSeriesStyle(p.isBenchmark, i);
-            const base = p.netValues[0]?.value || 1;
+            const firstPositive = p.netValues.find(nv => nv.value > 0);
+            const base = firstPositive?.value || 1;
             return {
                 name: displayName(p),
                 type: 'line' as const,
                 smooth: true,
+                connectNulls: true,
                 data: dates.map(d => {
                     const v = p.netValues.find(nv => nv.date === d)?.value;
-                    return v ? parseFloat((v / base).toFixed(4)) : undefined;
+                    return v && v > 0 ? parseFloat((v / base).toFixed(4)) : null;
                 }),
                 lineStyle: { color: s.lineColor, width: s.width, type: s.lineType },
                 itemStyle: { color: s.itemColor },
                 symbol: 'circle' as const,
-                symbolSize: 4,
+                symbolSize: 5,
                 showSymbol: false,
-                areaStyle: p.isBenchmark ? undefined : {
+                emphasis: { focus: 'series' as const },
+                areaStyle: !showArea || p.isBenchmark ? undefined : {
                     color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
                         { offset: 0, color: `${s.lineColor}20` },
                         { offset: 1, color: `${s.lineColor}00` }
@@ -511,7 +518,7 @@ export default function NetValuesManagementPage() {
                 textStyle: { fontSize: 16, fontWeight: 'bold' },
             },
             legend: { top: 40, left: 'center' },
-            tooltip: { trigger: 'axis', valueFormatter: (v: unknown) => Number(v).toFixed(4) },
+            tooltip: { trigger: 'axis', valueFormatter: (v: unknown) => v == null ? '—' : Number(v).toFixed(4) },
             grid: { left: '10%', right: '6%', bottom: '18%', top: '18%' },
             xAxis: { type: 'category', data: x, axisLabel: { rotate: 20 } },
             yAxis: { type: 'value', name: '相对净值', scale: true, axisLabel: { formatter: (v: number) => v.toFixed(3) } },
