@@ -124,6 +124,20 @@ export interface ApiResponse<T> {
     results: T[];
 }
 
+export interface BenchmarkIndex {
+    id: number;
+    index_code: string;
+    index_name: string;
+    index_short_name?: string | null;
+    exchange?: string | null;
+    is_valid: boolean;
+}
+
+export interface BenchmarkNetValuePoint {
+    net_value_date: string;
+    close_price: number | string;
+}
+
 export interface NetValueApiResponse<T> {
     count: number;
     results: T[];
