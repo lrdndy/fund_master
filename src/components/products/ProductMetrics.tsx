@@ -2,6 +2,13 @@
 
 import { useMemo } from 'react';
 import { ProductNetValue } from '@/lib/types';
+import {
+    DEFAULT_RISK_FREE,
+    MetricBundle,
+    computeBundle,
+    filterRange,
+    normalizePoints,
+} from '@/lib/metrics';
 
 export interface NamedSeries {
     name: string;
@@ -17,184 +24,16 @@ interface ProductMetricsProps {
     benchmarkSeries?: NamedSeries[];
 }
 
-interface NormalizedPoint {
-    date: Date;
-    dateStr: string;
-    value: number;
+function normalizeNetValues(netValues: ProductNetValue[]) {
+    return normalizePoints(
+        netValues
+            .filter(nv => nv.is_valid !== false)
+            .map(nv => ({ date: nv.net_value_date ?? '', value: nv.cumulative_unit_net_value })),
+    );
 }
 
-const TRADING_DAYS_PER_YEAR = 252;
-const DEFAULT_RISK_FREE = 0.025;
-
-// ===== 通用计算辅助 =====
-
-function normalizeNetValues(netValues: ProductNetValue[]): NormalizedPoint[] {
-    return netValues
-        .filter(nv => nv.is_valid !== false)
-        .map(nv => {
-            if (!nv.net_value_date) return null;
-            const cum = nv.cumulative_unit_net_value;
-            if (cum === null || cum === undefined) return null;
-            const num = typeof cum === 'number' ? cum : parseFloat(String(cum));
-            if (Number.isNaN(num) || num <= 0) return null;
-            const d = new Date(nv.net_value_date);
-            if (Number.isNaN(d.getTime())) return null;
-            return { date: d, dateStr: nv.net_value_date, value: num };
-        })
-        .filter((x): x is NormalizedPoint => x !== null)
-        .sort((a, b) => a.date.getTime() - b.date.getTime());
-}
-
-function normalizeNamedSeries(s: NamedSeries): NormalizedPoint[] {
-    return s.points
-        .map(p => {
-            const num = typeof p.value === 'number' ? p.value : parseFloat(String(p.value));
-            if (!p.date || Number.isNaN(num) || num <= 0) return null;
-            const d = new Date(p.date);
-            if (Number.isNaN(d.getTime())) return null;
-            return { date: d, dateStr: p.date, value: num };
-        })
-        .filter((x): x is NormalizedPoint => x !== null)
-        .sort((a, b) => a.date.getTime() - b.date.getTime());
-}
-
-function findAtOrBefore(points: NormalizedPoint[], target: Date): NormalizedPoint | null {
-    let lo = 0, hi = points.length - 1, ans = -1;
-    while (lo <= hi) {
-        const mid = (lo + hi) >> 1;
-        if (points[mid].date.getTime() <= target.getTime()) {
-            ans = mid;
-            lo = mid + 1;
-        } else {
-            hi = mid - 1;
-        }
-    }
-    return ans >= 0 ? points[ans] : null;
-}
-
-function findAtOrAfter(points: NormalizedPoint[], target: Date): NormalizedPoint | null {
-    let lo = 0, hi = points.length - 1, ans = -1;
-    while (lo <= hi) {
-        const mid = (lo + hi) >> 1;
-        if (points[mid].date.getTime() >= target.getTime()) {
-            ans = mid;
-            hi = mid - 1;
-        } else {
-            lo = mid + 1;
-        }
-    }
-    return ans >= 0 ? points[ans] : null;
-}
-
-function periodReturn(points: NormalizedPoint[], daysAgo: number): number | null {
-    if (points.length < 2) return null;
-    const latest = points[points.length - 1];
-    const target = new Date(latest.date.getTime() - daysAgo * 86400000);
-    const prev = findAtOrBefore(points, target);
-    if (!prev || prev.value <= 0 || prev.dateStr === latest.dateStr) return null;
-    return latest.value / prev.value - 1;
-}
-
-function ytdReturn(points: NormalizedPoint[]): number | null {
-    if (points.length < 2) return null;
-    const latest = points[points.length - 1];
-    const yearStart = new Date(latest.date.getFullYear(), 0, 1);
-    const prev = findAtOrAfter(points, yearStart);
-    if (!prev || prev.value <= 0 || prev.dateStr === latest.dateStr) return null;
-    return latest.value / prev.value - 1;
-}
-
-function maxDrawdown(points: NormalizedPoint[]): number | null {
-    if (points.length < 2) return null;
-    let peak = points[0].value;
-    let mdd = 0;
-    for (const p of points) {
-        if (p.value > peak) peak = p.value;
-        const dd = (peak - p.value) / peak;
-        if (dd > mdd) mdd = dd;
-    }
-    return -mdd;
-}
-
-function pointReturns(points: NormalizedPoint[]): number[] {
-    const rs: number[] = [];
-    for (let i = 1; i < points.length; i++) {
-        const prev = points[i - 1].value;
-        if (prev > 0) rs.push(points[i].value / prev - 1);
-    }
-    return rs;
-}
-
-function annualizedVolatility(points: NormalizedPoint[]): number | null {
-    const rs = pointReturns(points);
-    if (rs.length < 2) return null;
-    const mean = rs.reduce((a, b) => a + b, 0) / rs.length;
-    const variance = rs.reduce((sum, r) => sum + (r - mean) ** 2, 0) / (rs.length - 1);
-    return Math.sqrt(variance) * Math.sqrt(TRADING_DAYS_PER_YEAR);
-}
-
-function annualizedReturn(points: NormalizedPoint[]): number | null {
-    if (points.length < 2) return null;
-    const start = points[0].value;
-    const end = points[points.length - 1].value;
-    if (start <= 0) return null;
-    const n = points.length - 1;
-    if (n <= 0) return null;
-    return Math.pow(end / start, TRADING_DAYS_PER_YEAR / n) - 1;
-}
-
-function sharpeRatio(points: NormalizedPoint[], riskFree: number): number | null {
-    const annRet = annualizedReturn(points);
-    const annVol = annualizedVolatility(points);
-    if (annRet === null || annVol === null || annVol === 0) return null;
-    return (annRet - riskFree) / annVol;
-}
-
-function filterRange(points: NormalizedPoint[], start?: string, end?: string): NormalizedPoint[] {
-    if (!start && !end) return points;
-    const startTs = start ? new Date(start).getTime() : -Infinity;
-    const endTs = end ? new Date(end).getTime() : Infinity;
-    return points.filter(p => {
-        const t = p.date.getTime();
-        return t >= startTs && t <= endTs;
-    });
-}
-
-function rangeReturn(points: NormalizedPoint[]): number | null {
-    if (points.length < 2) return null;
-    return points[points.length - 1].value / points[0].value - 1;
-}
-
-interface MetricBundle {
-    r1w: number | null;
-    r1m: number | null;
-    r3m: number | null;
-    r1y: number | null;
-    rYtd: number | null;
-    mdd: number | null;
-    annVol: number | null;
-    sharpe: number | null;
-    rangeReturn: number | null;
-    rangeMdd: number | null;
-}
-
-function computeBundle(
-    allPoints: NormalizedPoint[],
-    rangePoints: NormalizedPoint[],
-    riskFree: number,
-): MetricBundle {
-    return {
-        r1w: periodReturn(allPoints, 7),
-        r1m: periodReturn(allPoints, 30),
-        r3m: periodReturn(allPoints, 90),
-        r1y: periodReturn(allPoints, 365),
-        rYtd: ytdReturn(allPoints),
-        mdd: maxDrawdown(allPoints),
-        annVol: annualizedVolatility(allPoints),
-        sharpe: sharpeRatio(allPoints, riskFree),
-        rangeReturn: rangeReturn(rangePoints),
-        rangeMdd: maxDrawdown(rangePoints),
-    };
+function normalizeNamedSeries(s: NamedSeries) {
+    return normalizePoints(s.points);
 }
 
 // ===== 格式化 =====
