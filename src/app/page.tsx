@@ -127,23 +127,6 @@ export default function HomePage() {
     setPage(1);
   };
 
-  // 兜底本地排序：后端若支持 ordering 已返回正确顺序，这里 stable 排序基本等效；
-  // 后端若不支持，至少把当前页按 return_1m 排好（null 始终沉底）
-  const sortedProducts = (() => {
-    const ord = filters.ordering;
-    if (ord !== '-return_1m' && ord !== 'return_1m') return products;
-    const dir = ord === '-return_1m' ? -1 : 1;
-    return [...products].sort((a, b) => {
-      const va = a.return_1m;
-      const vb = b.return_1m;
-      const aNull = va === null || va === undefined || Number.isNaN(va);
-      const bNull = vb === null || vb === undefined || Number.isNaN(vb);
-      if (aNull && bNull) return 0;
-      if (aNull) return 1;
-      if (bNull) return -1;
-      return (va! - vb!) * dir;
-    });
-  })();
 
   // 跳转新增产品
   const handleAddProduct = () => {
@@ -204,7 +187,7 @@ export default function HomePage() {
           ) : (
               <>
                 <ProductList
-                    products={sortedProducts}
+                    products={products}
                     ordering={filters.ordering ?? ''}
                     onOrderingChange={(ordering) => handleFilterChange({ ordering })}
                 />
