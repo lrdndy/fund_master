@@ -1,9 +1,9 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { productApi, downloadUtils, netValueApi } from '@/lib/api';
-import NetValueChart from '@/components/products/NetValueChart';
-import ProductMetrics from '@/components/products/ProductMetrics';
-import { Product, ProductNetValue, CustomTag } from '@/lib/types';
+import { productApi, downloadUtils, netValueApi, benchmarkApi } from '@/lib/api';
+import NetValueChart, { NetValueSeries } from '@/components/products/NetValueChart';
+import ProductMetrics, { NamedSeries } from '@/components/products/ProductMetrics';
+import { Product, ProductNetValue, CustomTag, BenchmarkIndex, BenchmarkNetValuePoint } from '@/lib/types';
 import { notFound } from 'next/navigation';
 import ProductNetValueManager from "@/components/products/ProductNetValueManager";
 import useProductTags from '@/hooks/useProductTags';
@@ -78,6 +78,12 @@ export default function ProductDetailClient({ initialProductId }: ProductDetailC
         setRefreshKey(prev => prev + 1);
     };
 
+    // 基准对比
+    const [benchmarks, setBenchmarks] = useState<BenchmarkIndex[]>([]);
+    const [selectedBenchmarkIds, setSelectedBenchmarkIds] = useState<number[]>([]);
+    const [benchmarkSeriesMap, setBenchmarkSeriesMap] = useState<Record<number, BenchmarkNetValuePoint[]>>({});
+    const [benchmarkLoading, setBenchmarkLoading] = useState(false);
+
     // 辅助：从 CustomTag[] 提取 ID 数组
     const getTagIds = (tags?: CustomTag[]): number[] => {
         return tags?.map(tag => tag.id) || [];
@@ -133,6 +139,59 @@ export default function ProductDetailClient({ initialProductId }: ProductDetailC
 
         fetchProductData();
     }, [initialProductId]);
+
+    // 拉一次可选基准列表
+    useEffect(() => {
+        const loadBenchmarks = async () => {
+            try {
+                const res = await benchmarkApi.getBenchmarks();
+                setBenchmarks(res.results ?? []);
+            } catch (err) {
+                console.error('加载基准列表失败', err);
+            }
+        };
+        void loadBenchmarks();
+    }, []);
+
+    // 选中基准变化或日期范围变化时，加载对应基准的净值（拉全量，前端再按区间裁切）
+    useEffect(() => {
+        if (selectedBenchmarkIds.length === 0) {
+            setBenchmarkSeriesMap({});
+            return;
+        }
+        let cancelled = false;
+        const loadAll = async () => {
+            setBenchmarkLoading(true);
+            try {
+                const results = await Promise.all(
+                    selectedBenchmarkIds.map(async id => {
+                        // 只拉已有的；缓存命中跳过
+                        if (benchmarkSeriesMap[id]) return { id, points: benchmarkSeriesMap[id] };
+                        const res = await benchmarkApi.getBenchmarkNetValues(id);
+                        return { id, points: res.results ?? [] };
+                    }),
+                );
+                if (cancelled) return;
+                const next: Record<number, BenchmarkNetValuePoint[]> = {};
+                results.forEach(r => { next[r.id] = r.points; });
+                setBenchmarkSeriesMap(next);
+            } catch (err) {
+                console.error('加载基准净值失败', err);
+            } finally {
+                if (!cancelled) setBenchmarkLoading(false);
+            }
+        };
+        void loadAll();
+        return () => { cancelled = true; };
+    }, [selectedBenchmarkIds]);
+
+    const toggleBenchmark = (id: number) => {
+        setSelectedBenchmarkIds(prev =>
+            prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+        );
+    };
+
+    const clearBenchmarks = () => setSelectedBenchmarkIds([]);
 
     const getFilteredChartData = () => {
         let filtered = [...netValues];
@@ -362,14 +421,58 @@ export default function ProductDetailClient({ initialProductId }: ProductDetailC
     };
 
     const filteredChartData = getFilteredChartData();
-    const chartSafeNetValues = filteredChartData
+
+    // 产品净值序列：以累计净值作为画图与指标的基础
+    const productSeriesPoints = filteredChartData
         .filter((item): item is ProductNetValue & { cumulative_unit_net_value: number } =>
-            item.cumulative_unit_net_value !== null && item.cumulative_unit_net_value !== undefined
+            item.cumulative_unit_net_value !== null && item.cumulative_unit_net_value !== undefined,
         )
         .map(item => ({
-            net_value_date: item.net_value_date || '',
-            net_value: item.cumulative_unit_net_value
+            date: item.net_value_date || '',
+            value: Number(item.cumulative_unit_net_value),
         }));
+
+    // 选中基准的序列：按当前日期范围裁切，并按需归一化（与产品一起画时）
+    const buildBenchmarkPoints = (raw: BenchmarkNetValuePoint[]): Array<{ date: string; value: number }> => {
+        return raw
+            .filter(p => {
+                if (!p.net_value_date) return false;
+                if (chartStartDate && p.net_value_date < chartStartDate) return false;
+                if (chartEndDate && p.net_value_date > chartEndDate) return false;
+                return true;
+            })
+            .map(p => ({ date: p.net_value_date, value: Number(p.close_price) }))
+            .filter(p => Number.isFinite(p.value) && p.value > 0);
+    };
+
+    const chartSeries: NetValueSeries[] = [
+        { name: `${product.product_name} 累计净值`, points: productSeriesPoints },
+        ...selectedBenchmarkIds
+            .filter(id => benchmarkSeriesMap[id])
+            .map(id => {
+                const idx = benchmarks.find(b => b.id === id);
+                return {
+                    name: idx?.index_short_name || idx?.index_name || `基准#${id}`,
+                    points: buildBenchmarkPoints(benchmarkSeriesMap[id]),
+                };
+            }),
+    ];
+
+    // 给指标面板用的基准 series（不归一化、走原值）
+    const benchmarkSeriesForMetrics: NamedSeries[] = selectedBenchmarkIds
+        .filter(id => benchmarkSeriesMap[id])
+        .map(id => {
+            const idx = benchmarks.find(b => b.id === id);
+            return {
+                name: idx?.index_short_name || idx?.index_name || `基准#${id}`,
+                points: benchmarkSeriesMap[id].map(p => ({
+                    date: p.net_value_date,
+                    value: Number(p.close_price),
+                })),
+            };
+        });
+
+    const hasBenchmark = selectedBenchmarkIds.length > 0;
 
     return (
         <div className="space-y-8 py-4">
@@ -662,11 +765,60 @@ export default function ProductDetailClient({ initialProductId }: ProductDetailC
                 netValues={netValues}
                 rangeStart={chartStartDate || undefined}
                 rangeEnd={chartEndDate || undefined}
+                benchmarkSeries={benchmarkSeriesForMetrics}
             />
+
+            {/* 基准对比选择器 */}
+            <div className="bg-white rounded-lg border border-gray-200 p-4">
+                <div className="flex justify-between items-center mb-2">
+                    <h3 className="text-sm font-semibold text-gray-700">
+                        对比基准
+                        {benchmarkLoading && <span className="ml-2 text-xs text-gray-400">加载中…</span>}
+                    </h3>
+                    {selectedBenchmarkIds.length > 0 && (
+                        <button
+                            onClick={clearBenchmarks}
+                            className="text-xs text-gray-500 hover:text-gray-700 underline"
+                        >
+                            清空
+                        </button>
+                    )}
+                </div>
+                {benchmarks.length === 0 ? (
+                    <div className="text-xs text-gray-400">暂无可选基准（请先在后端同步基准指数）</div>
+                ) : (
+                    <div className="flex flex-wrap gap-2">
+                        {benchmarks.map(b => {
+                            const checked = selectedBenchmarkIds.includes(b.id);
+                            return (
+                                <label
+                                    key={b.id}
+                                    className={`px-3 py-1 rounded text-xs cursor-pointer border transition ${
+                                        checked
+                                            ? 'bg-blue-50 border-blue-400 text-blue-700'
+                                            : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100'
+                                    }`}
+                                >
+                                    <input
+                                        type="checkbox"
+                                        className="hidden"
+                                        checked={checked}
+                                        onChange={() => toggleBenchmark(b.id)}
+                                    />
+                                    {b.index_short_name || b.index_name}
+                                </label>
+                            );
+                        })}
+                    </div>
+                )}
+            </div>
 
             <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-8">
                 <div className="flex justify-between items-center mb-6">
-                    <h2 className="text-xl font-semibold">净值曲线</h2>
+                    <h2 className="text-xl font-semibold">
+                        净值曲线
+                        {hasBenchmark && <span className="ml-2 text-xs text-gray-400 font-normal">（与基准已归一化到起点 = 1）</span>}
+                    </h2>
                     <div className="flex gap-3 items-center">
                         <input
                             type="date"
@@ -718,9 +870,10 @@ export default function ProductDetailClient({ initialProductId }: ProductDetailC
 
                 <NetValueChart
                     key={refreshKey}
-                    netValues={chartSafeNetValues}
-                    productName={`${product.product_name} - 累计净值曲线`}
+                    series={chartSeries}
+                    title={`${product.product_name}${hasBenchmark ? ' vs 基准' : ' - 累计净值曲线'}`}
                     loading={false}
+                    normalize={hasBenchmark}
                 />
             </div>
 

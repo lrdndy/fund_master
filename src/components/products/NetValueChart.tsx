@@ -5,29 +5,31 @@ import { useEffect, useRef } from 'react';
 import * as echarts from 'echarts';
 import type { EChartOption } from 'echarts';
 
-type NetValueType = 'net_value' | 'cumulative_unit_net_value';
+export interface NetValueSeries {
+    name: string;
+    points: Array<{ date: string; value: number }>;
+    color?: string;
+}
 
 interface NetValueChartProps {
-    netValues: Array<{
-        net_value_date: string;
-        net_value: number | string;
-        cumulative_unit_net_value?: number | string;
-    }> | undefined;
-    productName: string;
-    loading: boolean;
-    netValueType?: NetValueType;
+    series: NetValueSeries[];
+    title?: string;
+    loading?: boolean;
+    /** true 时所有 series 归一化到起点 = 1.0，便于不同量级数据（净值 vs 指数点位）直接对比 */
+    normalize?: boolean;
 }
 
 interface ChartTooltipParam {
-    name: string | undefined;
-    value: number | string | undefined;
-    marker: string | undefined;
+    seriesName?: string;
+    name?: string;
+    value?: number | string | [string, number];
+    marker?: string;
+    axisValueLabel?: string;
 }
 
-const debounce = (
-    fn: () => void,
-    delay: number
-): () => void => {
+const DEFAULT_COLORS = ['#1e40af', '#dc2626', '#16a34a', '#d97706', '#7c3aed', '#0891b2', '#db2777'];
+
+const debounce = (fn: () => void, delay: number): () => void => {
     let timer: NodeJS.Timeout | null = null;
     return () => {
         if (timer) clearTimeout(timer);
@@ -35,12 +37,26 @@ const debounce = (
     };
 };
 
+// 清洗 + 排序，必要时归一化
+function prepareSeries(raw: NetValueSeries, normalize: boolean): NetValueSeries {
+    const cleaned = raw.points
+        .filter(p => p.date && !Number.isNaN(Number(p.value)) && Number(p.value) > 0)
+        .map(p => ({ date: p.date, value: Number(p.value) }))
+        .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    if (!normalize || cleaned.length === 0) {
+        return { ...raw, points: cleaned };
+    }
+    const base = cleaned[0].value;
+    if (base <= 0) return { ...raw, points: cleaned };
+    return { ...raw, points: cleaned.map(p => ({ date: p.date, value: p.value / base })) };
+}
+
 export default function NetValueChart({
-                                          netValues = [],
-                                          productName,
-                                          loading,
-                                          netValueType = 'net_value',
-                                      }: NetValueChartProps) {
+    series,
+    title,
+    loading = false,
+    normalize = false,
+}: NetValueChartProps) {
     const chartRef = useRef<HTMLDivElement>(null);
     const chartInstance = useRef<echarts.ECharts | null>(null);
     const debouncedResize = useRef<() => void>(() => {});
@@ -64,109 +80,84 @@ export default function NetValueChart({
     useEffect(() => {
         if (!chartInstance.current || loading) return;
 
-        // 🔥 修复：移除复杂的类型守卫，直接处理数据
-        const validData = netValues
-            .map(item => {
-                const valueField = netValueType;
-                const value = item[valueField];
-                const num = Number(value);
-                if (isNaN(num) || num < 0 || !item.net_value_date.trim()) {
-                    return null;
-                }
-                return {
-                    net_value_date: item.net_value_date,
-                    value: num
-                };
-            })
-            .filter((item): item is { net_value_date: string; value: number } => item !== null);
+        const prepared = series.map(s => prepareSeries(s, normalize)).filter(s => s.points.length > 0);
 
         chartInstance.current.clear();
 
-        if (validData.length === 0) return;
+        if (prepared.length === 0) return;
 
-        const sortedData = [...validData].sort((a, b) =>
-            new Date(a.net_value_date).getTime() - new Date(b.net_value_date).getTime()
-        );
+        const echartsSeries: EChartOption.SeriesLine[] = prepared.map((s, idx) => ({
+            name: s.name,
+            type: 'line',
+            data: s.points.map(p => [p.date, p.value] as [string, number]),
+            smooth: true,
+            showSymbol: false,
+            symbolSize: 4,
+            lineStyle: { color: s.color ?? DEFAULT_COLORS[idx % DEFAULT_COLORS.length], width: 2 },
+            itemStyle: { color: s.color ?? DEFAULT_COLORS[idx % DEFAULT_COLORS.length] },
+            // 单条线时填充色更柔和；多条线不填充，避免互相遮挡
+            ...(prepared.length === 1
+                ? {
+                    areaStyle: {
+                        color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                            { offset: 0, color: 'rgba(59,132,246,0.2)' },
+                            { offset: 1, color: 'rgba(59,132,246,0)' },
+                        ]),
+                    },
+                }
+                : {}),
+        }));
 
-        const xData = sortedData.map(item => {
-            const d = new Date(item.net_value_date);
-            return `${d.getMonth() + 1}-${d.getDate().toString().padStart(2, '0')}`;
-        });
-
-        const yData = sortedData.map(item => item.value);
-
-        const yMin = Math.min(...yData) - 0.1;
-        const yMax = Math.max(...yData) + 0.1;
-
-        const chartTitle = netValueType === 'cumulative_unit_net_value'
-            ? `${productName} 累计净值趋势`
-            : `${productName} 净值趋势`;
-        const valueLabel = netValueType === 'cumulative_unit_net_value'
-            ? '累计净值'
-            : '净值';
+        const valueDigits = normalize ? 4 : 3;
 
         const option: EChartOption = {
-            title: {
-                text: chartTitle,
-                left: 'center',
-                textStyle: { color: '#1e3a8a', fontSize: 16, fontWeight: 600 },
-            },
+            title: title
+                ? { text: title, left: 'center', textStyle: { color: '#1e3a8a', fontSize: 16, fontWeight: 600 } }
+                : undefined,
+            legend: prepared.length > 1
+                ? { top: title ? 30 : 6, data: prepared.map(s => s.name), textStyle: { fontSize: 12 } }
+                : undefined,
             tooltip: {
                 trigger: 'axis',
                 axisPointer: { type: 'line', lineStyle: { color: '#e2e8f0', width: 1 } },
-                backgroundColor: 'rgba(255,255,255,0.9)',
+                backgroundColor: 'rgba(255,255,255,0.95)',
                 borderColor: '#e2e8f0',
                 borderWidth: 1,
                 padding: 10,
                 textStyle: { color: '#334155', fontSize: 12 },
-                position: 'top',
                 formatter: (params: unknown) => {
-                    if (!Array.isArray(params) || !params[0]) return '暂无数据';
-                    const p = params[0] as ChartTooltipParam;
-                    const val = Number(p.value) || 0;
-                    return `${p.name}<br/>${p.marker}${valueLabel}：${val.toFixed(4)}`;
+                    if (!Array.isArray(params) || params.length === 0) return '';
+                    const arr = params as ChartTooltipParam[];
+                    const axisLabel = arr[0].axisValueLabel ?? arr[0].name ?? '';
+                    const lines = arr.map(p => {
+                        const val = Array.isArray(p.value) ? p.value[1] : Number(p.value);
+                        const valStr = Number.isFinite(val) ? Number(val).toFixed(valueDigits) : '—';
+                        return `${p.marker ?? ''}${p.seriesName}：${valStr}`;
+                    });
+                    return [axisLabel, ...lines].join('<br/>');
                 },
             },
-            grid: { left: '10%', right: '5%', bottom: '15%', top: '20%', containLabel: true },
+            grid: { left: '8%', right: '5%', bottom: '12%', top: prepared.length > 1 ? '20%' : '15%', containLabel: true },
             xAxis: {
-                type: 'category',
-                data: xData,
-                axisLabel: { color: '#64748b', rotate: 30, fontSize: 11 },
+                type: 'time',
+                axisLabel: { color: '#64748b', fontSize: 11 },
                 axisLine: { lineStyle: { color: '#e2e8f0' } },
                 splitLine: { show: false },
             },
             yAxis: {
                 type: 'value',
-                min: yMin,
-                max: yMax,
-                axisLabel: { color: '#64748b', fontSize: 11, formatter: (v: number) => v.toFixed(3) },
+                scale: true,
+                axisLabel: { color: '#64748b', fontSize: 11, formatter: (v: number) => v.toFixed(valueDigits) },
                 axisLine: { lineStyle: { color: '#e2e8f0' } },
                 splitLine: { lineStyle: { color: '#f1f5f9' } },
             },
-            series: [{
-                name: valueLabel,
-                type: 'line',
-                data: yData,
-                smooth: true,
-                lineStyle: { color: '#3b82f6', width: 2.5 },
-                itemStyle: { color: '#1e40af', borderWidth: 2, borderColor: '#fff' },
-                symbol: 'circle',
-                symbolSize: 4,
-                showSymbol: false,
-                emphasis: { itemStyle: { color: '#1e40af', borderWidth: 3, borderColor: '#fff' } },
-                areaStyle: {
-                    color: new echarts.graphic.LinearGradient(0,0,0,1, [
-                        { offset: 0, color: 'rgba(59,132,246,0.2)' },
-                        { offset: 1, color: 'rgba(59,132,246,0)' }
-                    ])
-                },
-            }],
-            animationDuration: 1000,
+            series: echartsSeries,
+            animationDuration: 800,
             animationEasingUpdate: 'quinticInOut',
         };
 
         chartInstance.current.setOption(option, true);
-    }, [netValues, productName, loading, netValueType]);
+    }, [series, title, loading, normalize]);
 
     if (loading) {
         return (
@@ -176,21 +167,11 @@ export default function NetValueChart({
         );
     }
 
-    // 🔥 修复：简化数据验证逻辑
-    const hasValidData = netValues.some(item => {
-        const valueField = netValueType;
-        const value = item[valueField];
-        const num = Number(value);
-        return !isNaN(num) && num >= 0 && item.net_value_date.trim() !== '';
-    });
-
-    if (!hasValidData) {
-        const noDataText = netValueType === 'cumulative_unit_net_value'
-            ? '暂无累计净值数据，无法生成图表'
-            : '暂无净值数据，无法生成图表';
+    const hasAnyData = series.some(s => s.points.length > 0);
+    if (!hasAnyData) {
         return (
             <div className="flex items-center justify-center h-[400px] bg-gray-50 rounded-lg border border-gray-200">
-                <span className="text-gray-500">{noDataText}</span>
+                <span className="text-gray-500">暂无净值数据，无法生成图表</span>
             </div>
         );
     }

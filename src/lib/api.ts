@@ -3,7 +3,8 @@ import axios from 'axios';
 import {
     ApiResponse, CycleTag, Product, ProductFormData, QuantType,
     AlgorithmType, StrategyType, ProductNetValue, ProductCorrelation,
-    NetValueApiResponse, CsvImportResponse, SingleNetValueRequest, UserInfo, FofOwnTag, CustomTag  // 🔥 新增
+    NetValueApiResponse, CsvImportResponse, SingleNetValueRequest, UserInfo, FofOwnTag, CustomTag,
+    BenchmarkIndex, BenchmarkNetValuePoint
 } from './types';
 
 // axios实例配置（对齐后端路由，无/api前缀）
@@ -239,6 +240,28 @@ export const netValueApi = {
     // 🔥 修复：显式声明返回类型，解决unknown赋值错误
     getNetValueById: async (id: number): Promise<ProductNetValue> => {
         const res = await api.get<ProductNetValue>(`/net-values/${id}/`);
+        return res.data;
+    },
+};
+
+// ==================== 基准指数 API ====================
+export const benchmarkApi = {
+    getBenchmarks: async (): Promise<ApiResponse<BenchmarkIndex>> => {
+        const res = await api.get<ApiResponse<BenchmarkIndex>>('/benchmarks/');
+        return res.data;
+    },
+    getBenchmarkNetValues: async (
+        id: number,
+        startDate?: string,
+        endDate?: string,
+    ): Promise<{ count: number; results: BenchmarkNetValuePoint[] }> => {
+        const params: Record<string, string> = {};
+        if (startDate) params.start_date = startDate;
+        if (endDate) params.end_date = endDate;
+        const res = await api.get<{ count: number; results: BenchmarkNetValuePoint[] }>(
+            `/benchmarks/${id}/net_values/`,
+            { params },
+        );
         return res.data;
     },
 };
