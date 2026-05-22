@@ -42,6 +42,7 @@ export default function ProductFilter({ tags, filters, onFilterChange }: Product
             fof_own: '',
             custom: '',
             search: '',
+            ordering: '',
         });
     };
 
@@ -160,6 +161,20 @@ export default function ProductFilter({ tags, filters, onFilterChange }: Product
                                 {item.tag_name}
                             </option>
                         ))}
+                    </select>
+                </div>
+
+                {/* 排序：近一月收益率 */}
+                <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">排序</label>
+                    <select
+                        value={filters.ordering ?? ''}
+                        onChange={(e) => handleSelectChange('ordering', e.target.value)}
+                        className="select-field"
+                    >
+                        <option value="">默认</option>
+                        <option value="-return_1m">近一月收益率（高 → 低）</option>
+                        <option value="return_1m">近一月收益率（低 → 高）</option>
                     </select>
                 </div>
 

@@ -152,6 +152,7 @@ export interface ProductFilterParams {
     search: string;
     custom: string;
     is_valid?: string;
+    ordering?: string; // 排序，如 '-return_1m'（近一月收益降序）/ 'return_1m'（升序）/ '' 默认
 }
 
 export interface TagsState {
