@@ -466,6 +466,16 @@ export default function NetValuesManagementPage() {
         setProductIndicators(generateProductIndicators(chartProductList));
     }, [chartProductList]);
 
+    // 多 series 对齐起跳点：取各 series 首个有效日期中"最晚"的那个作为 T0；
+    // 之前各自归一会让晚成立产品的周期差异被掩盖（短周期产品因起点小看起来涨得多）。
+    const computeAlignT0 = (list: ChartProductData[]): string | undefined => {
+        const starts = list
+            .map(p => p.netValues.find(nv => nv.value > 0)?.date)
+            .filter((d): d is string => !!d);
+        if (starts.length < list.length || starts.length < 2) return undefined;
+        return starts.reduce((a, b) => (a > b ? a : b));
+    };
+
     // 图例/表格显示用：指数加 [指数]、基准产品加 [基准]
     const displayName = (p: ChartProductData | ProductIndicator): string => {
         if (p.isIndex) return `[指数] ${p.name}`;
@@ -474,16 +484,18 @@ export default function NetValuesManagementPage() {
     };
 
     // 渲染净值图表（归一化到起点=1，便于产品净值与指数点位同框对比）
-    // 注意：x 轴使用 time 类型 + 每条 series 用 [date,value] 二元组，避免不同发布频率
-    // 的产品（如日频 vs 周频）在合集日期上被插 null 导致线断断续续
+    // 多 series 对比时，T0 = 各 series 最早数据日期中的最晚值（共同起跳点）；所有产品从 T0
+    // 当天的值开始归一化，公平比较"如果同时持有"的相对表现，避免晚成立产品因周期短被高估。
     const renderNetValue = () => {
         if (!netValueChart.current || !chartProductList.length) return;
         const multi = chartProductList.length > 1;
+        const alignT0 = multi ? computeAlignT0(chartProductList) : undefined;
         const series = chartProductList.map((p, i) => {
             const s = getSeriesStyle(p.isBenchmark, i);
-            const firstPositive = p.netValues.find(nv => nv.value > 0);
+            const visible = alignT0 ? p.netValues.filter(nv => nv.date >= alignT0) : p.netValues;
+            const firstPositive = visible.find(nv => nv.value > 0);
             const base = firstPositive?.value || 1;
-            const data = p.netValues
+            const data = visible
                 .filter(nv => nv.value > 0)
                 .map(nv => [nv.date, parseFloat((nv.value / base).toFixed(4))]);
             return {
@@ -515,12 +527,14 @@ export default function NetValuesManagementPage() {
         netValueChart.current.setOption({
             title: {
                 text: '累计净值（归一化，起点=1）',
+                subtext: alignT0 ? `多产品对比已对齐共同起跳日：${alignT0}` : undefined,
                 left: 'center',
                 textStyle: { fontSize: 16, fontWeight: 'bold' },
+                subtextStyle: { fontSize: 12, color: '#6b7280' },
             },
-            legend: { top: 40, left: 'center' },
+            legend: { top: alignT0 ? 56 : 40, left: 'center' },
             tooltip: { trigger: 'axis', valueFormatter: (v: unknown) => v == null ? '—' : Number(v).toFixed(4) },
-            grid: { left: '10%', right: '6%', bottom: '18%', top: '18%' },
+            grid: { left: '10%', right: '6%', bottom: '18%', top: alignT0 ? '22%' : '18%' },
             xAxis: { type: 'time', axisLabel: { rotate: 20 } },
             yAxis: { type: 'value', name: '相对净值', scale: true, axisLabel: { formatter: (v: number) => v.toFixed(3) } },
             dataZoom: [{ type: 'slider', bottom: 5 }, { type: 'inside' }],
@@ -528,14 +542,17 @@ export default function NetValuesManagementPage() {
         } as Record<string, unknown>, true);
     };
 
-    // 渲染收益率图表（每条 series 独立的 [date, pct] 数据点，避免合集日期插 null）
+    // 渲染收益率图表（同样对齐共同起跳点，从 T0 起累计）
     const renderReturn = () => {
         if (!returnChart.current || !chartProductList.length) return;
+        const multi = chartProductList.length > 1;
+        const alignT0 = multi ? computeAlignT0(chartProductList) : undefined;
         const series = chartProductList.map((p, i) => {
             const s = getSeriesStyle(p.isBenchmark, i);
-            const firstPositive = p.netValues.find(nv => nv.value > 0);
+            const visible = alignT0 ? p.netValues.filter(nv => nv.date >= alignT0) : p.netValues;
+            const firstPositive = visible.find(nv => nv.value > 0);
             const base = firstPositive?.value || 1;
-            const data = p.netValues
+            const data = visible
                 .filter(nv => nv.value > 0)
                 .map(nv => [nv.date, parseFloat(((nv.value / base - 1) * 100).toFixed(2))]);
             return {
@@ -551,10 +568,16 @@ export default function NetValuesManagementPage() {
         });
 
         returnChart.current.setOption({
-            title: { text: '收益率走势（%）', left: 'center', textStyle: { fontSize: 16, fontWeight: 'bold' } },
-            legend: { top: 40, left: 'center' },
+            title: {
+                text: '收益率走势（%）',
+                subtext: alignT0 ? `多产品对比已对齐共同起跳日：${alignT0}` : undefined,
+                left: 'center',
+                textStyle: { fontSize: 16, fontWeight: 'bold' },
+                subtextStyle: { fontSize: 12, color: '#6b7280' },
+            },
+            legend: { top: alignT0 ? 56 : 40, left: 'center' },
             tooltip: { trigger: 'axis', valueFormatter: (v: unknown) => v == null ? '—' : `${Number(v).toFixed(2)}%` },
-            grid: { left: '10%', right: '6%', bottom: '18%', top: '18%' },
+            grid: { left: '10%', right: '6%', bottom: '18%', top: alignT0 ? '22%' : '18%' },
             xAxis: { type: 'time', axisLabel: { rotate: 20 } },
             yAxis: { type: 'value', name: '收益率(%)' },
             dataZoom: [{ type: 'slider', bottom: 5 }, { type: 'inside' }],
