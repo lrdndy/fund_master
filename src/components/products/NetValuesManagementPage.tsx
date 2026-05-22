@@ -481,8 +481,8 @@ export default function NetValuesManagementPage() {
         if (!netValueChart.current || !chartProductList.length) return;
         const dates = getAllDates();
         const x = dates.map(formatDate);
-        // 多于一条线时不画区域填充，避免一条线被另一条的渐变面挡掉
-        const showArea = chartProductList.length === 1;
+        // 多于一条线时不画区域填充、缩窄线宽、加半透明，避免完全重合像素覆盖
+        const multi = chartProductList.length > 1;
         const series = chartProductList.map((p, i) => {
             const s = getSeriesStyle(p.isBenchmark, i);
             const firstPositive = p.netValues.find(nv => nv.value > 0);
@@ -496,13 +496,19 @@ export default function NetValuesManagementPage() {
                     const v = p.netValues.find(nv => nv.date === d)?.value;
                     return v && v > 0 ? parseFloat((v / base).toFixed(4)) : null;
                 }),
-                lineStyle: { color: s.lineColor, width: s.width, type: s.lineType },
+                lineStyle: {
+                    color: s.lineColor,
+                    width: multi ? 2 : s.width,
+                    type: s.lineType,
+                    opacity: multi ? 0.85 : 1,
+                },
                 itemStyle: { color: s.itemColor },
                 symbol: 'circle' as const,
                 symbolSize: 5,
                 showSymbol: false,
-                emphasis: { focus: 'series' as const },
-                areaStyle: !showArea || p.isBenchmark ? undefined : {
+                emphasis: { focus: 'series' as const, lineStyle: { width: 3, opacity: 1 } },
+                z: chartProductList.length - i, // 让先选中的产品画在上层，避免被同形态曲线压住
+                areaStyle: multi || p.isBenchmark ? undefined : {
                     color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
                         { offset: 0, color: `${s.lineColor}20` },
                         { offset: 1, color: `${s.lineColor}00` }
