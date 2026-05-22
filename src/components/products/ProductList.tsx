@@ -3,10 +3,24 @@ import { useRouter } from 'next/navigation';
 
 interface ProductListProps {
     products: Product[];
+    /** 当前排序值，对齐 ProductFilterParams.ordering：'-return_1m' | 'return_1m' | '' */
+    ordering?: string;
+    /** 点击列头切换排序时回调；不传则列头不可点 */
+    onOrderingChange?: (ordering: string) => void;
 }
 
-export default function ProductList({ products }: ProductListProps) {
+export default function ProductList({ products, ordering = '', onOrderingChange }: ProductListProps) {
     const router = useRouter();
+
+    // 三态切换：none -> desc -> asc -> none
+    const cycleReturn1mOrdering = () => {
+        if (!onOrderingChange) return;
+        const next = ordering === '-return_1m' ? 'return_1m' : ordering === 'return_1m' ? '' : '-return_1m';
+        onOrderingChange(next);
+    };
+
+    const return1mArrow =
+        ordering === '-return_1m' ? '↓' : ordering === 'return_1m' ? '↑' : '⇅';
 
     const handleViewDetail = (productId: number) => {
         router.push(`/products/${productId}`);
@@ -46,7 +60,13 @@ export default function ProductList({ products }: ProductListProps) {
                     <th className="px-6 py-3">策略类型</th>
                     <th className="px-6 py-3">FOF 归属</th>
                     <th className="px-6 py-3">自定义标签</th>
-                    <th className="px-6 py-3">近一月收益率</th>
+                    <th
+                        className={`px-6 py-3 select-none ${onOrderingChange ? 'cursor-pointer hover:bg-gray-200' : ''}`}
+                        onClick={onOrderingChange ? cycleReturn1mOrdering : undefined}
+                        title={onOrderingChange ? '点击切换排序：降序 / 升序 / 默认' : undefined}
+                    >
+                        近一月收益率 <span className={ordering.includes('return_1m') ? 'text-blue-600' : 'text-gray-400'}>{return1mArrow}</span>
+                    </th>
                     <th className="px-6 py-3 rounded-r-lg">打分</th>
                 </tr>
                 </thead>

@@ -53,6 +53,7 @@ export default function HomePage() {
     fof_own: '',
     custom: '', // ✅ 这里加上
     search: '',
+    ordering: '',
   });
 
   // 加载所有标签数据
@@ -98,6 +99,7 @@ export default function HomePage() {
         if (filters.fof_own) params.fof_own = filters.fof_own;
         if (filters.custom) params.custom = filters.custom;
         if (filters.search) params.search = filters.search;
+        if (filters.ordering) params.ordering = filters.ordering;
 
         params.page = String(page);
         params.page_size = String(pageSize);
@@ -124,6 +126,24 @@ export default function HomePage() {
     setFilters(prev => ({ ...prev, ...newFilters }));
     setPage(1);
   };
+
+  // 兜底本地排序：后端若支持 ordering 已返回正确顺序，这里 stable 排序基本等效；
+  // 后端若不支持，至少把当前页按 return_1m 排好（null 始终沉底）
+  const sortedProducts = (() => {
+    const ord = filters.ordering;
+    if (ord !== '-return_1m' && ord !== 'return_1m') return products;
+    const dir = ord === '-return_1m' ? -1 : 1;
+    return [...products].sort((a, b) => {
+      const va = a.return_1m;
+      const vb = b.return_1m;
+      const aNull = va === null || va === undefined || Number.isNaN(va);
+      const bNull = vb === null || vb === undefined || Number.isNaN(vb);
+      if (aNull && bNull) return 0;
+      if (aNull) return 1;
+      if (bNull) return -1;
+      return (va! - vb!) * dir;
+    });
+  })();
 
   // 跳转新增产品
   const handleAddProduct = () => {
@@ -183,7 +203,11 @@ export default function HomePage() {
               <div className="flex justify-center py-10 text-gray-500">暂无匹配产品</div>
           ) : (
               <>
-                <ProductList products={products} />
+                <ProductList
+                    products={sortedProducts}
+                    ordering={filters.ordering ?? ''}
+                    onOrderingChange={(ordering) => handleFilterChange({ ordering })}
+                />
 
                 {/* 分页控件 */}
                 <div className="mt-4 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 pt-4 border-t border-gray-100">
