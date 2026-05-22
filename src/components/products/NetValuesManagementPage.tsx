@@ -466,9 +466,6 @@ export default function NetValuesManagementPage() {
         setProductIndicators(generateProductIndicators(chartProductList));
     }, [chartProductList]);
 
-    // 获取所有日期
-    const getAllDates = () => Array.from(new Set(chartProductList.flatMap(p => p.netValues.map(v => v.date)))).sort();
-
     // 图例/表格显示用：指数加 [指数]、基准产品加 [基准]
     const displayName = (p: ChartProductData | ProductIndicator): string => {
         if (p.isIndex) return `[指数] ${p.name}`;
@@ -477,25 +474,23 @@ export default function NetValuesManagementPage() {
     };
 
     // 渲染净值图表（归一化到起点=1，便于产品净值与指数点位同框对比）
+    // 注意：x 轴使用 time 类型 + 每条 series 用 [date,value] 二元组，避免不同发布频率
+    // 的产品（如日频 vs 周频）在合集日期上被插 null 导致线断断续续
     const renderNetValue = () => {
         if (!netValueChart.current || !chartProductList.length) return;
-        const dates = getAllDates();
-        const x = dates.map(formatDate);
-        // 多于一条线时不画区域填充、缩窄线宽、加半透明，避免完全重合像素覆盖
         const multi = chartProductList.length > 1;
         const series = chartProductList.map((p, i) => {
             const s = getSeriesStyle(p.isBenchmark, i);
             const firstPositive = p.netValues.find(nv => nv.value > 0);
             const base = firstPositive?.value || 1;
+            const data = p.netValues
+                .filter(nv => nv.value > 0)
+                .map(nv => [nv.date, parseFloat((nv.value / base).toFixed(4))]);
             return {
                 name: displayName(p),
                 type: 'line' as const,
                 smooth: true,
-                connectNulls: true,
-                data: dates.map(d => {
-                    const v = p.netValues.find(nv => nv.date === d)?.value;
-                    return v && v > 0 ? parseFloat((v / base).toFixed(4)) : null;
-                }),
+                data,
                 lineStyle: {
                     color: s.lineColor,
                     width: multi ? 2 : s.width,
@@ -507,7 +502,7 @@ export default function NetValuesManagementPage() {
                 symbolSize: 5,
                 showSymbol: false,
                 emphasis: { focus: 'series' as const, lineStyle: { width: 3, opacity: 1 } },
-                z: chartProductList.length - i, // 让先选中的产品画在上层，避免被同形态曲线压住
+                z: chartProductList.length - i,
                 areaStyle: multi || p.isBenchmark ? undefined : {
                     color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
                         { offset: 0, color: `${s.lineColor}20` },
@@ -526,71 +521,71 @@ export default function NetValuesManagementPage() {
             legend: { top: 40, left: 'center' },
             tooltip: { trigger: 'axis', valueFormatter: (v: unknown) => v == null ? '—' : Number(v).toFixed(4) },
             grid: { left: '10%', right: '6%', bottom: '18%', top: '18%' },
-            xAxis: { type: 'category', data: x, axisLabel: { rotate: 20 } },
+            xAxis: { type: 'time', axisLabel: { rotate: 20 } },
             yAxis: { type: 'value', name: '相对净值', scale: true, axisLabel: { formatter: (v: number) => v.toFixed(3) } },
             dataZoom: [{ type: 'slider', bottom: 5 }, { type: 'inside' }],
             series
         } as Record<string, unknown>, true);
     };
 
-    // 渲染收益率图表
+    // 渲染收益率图表（每条 series 独立的 [date, pct] 数据点，避免合集日期插 null）
     const renderReturn = () => {
         if (!returnChart.current || !chartProductList.length) return;
-        const dates = getAllDates();
-        const x = dates.map(formatDate);
         const series = chartProductList.map((p, i) => {
             const s = getSeriesStyle(p.isBenchmark, i);
-            const base = p.netValues[0]?.value || 1;
+            const firstPositive = p.netValues.find(nv => nv.value > 0);
+            const base = firstPositive?.value || 1;
+            const data = p.netValues
+                .filter(nv => nv.value > 0)
+                .map(nv => [nv.date, parseFloat(((nv.value / base - 1) * 100).toFixed(2))]);
             return {
                 name: displayName(p),
                 type: 'line' as const,
                 smooth: true,
-                data: dates.map(d => {
-                    const v = p.netValues.find(nv => nv.date === d)?.value;
-                    return v ? parseFloat(((v / base - 1) * 100).toFixed(2)) : undefined;
-                }),
+                data,
                 lineStyle: { color: s.lineColor, width: s.width, type: s.lineType },
                 itemStyle: { color: s.itemColor },
-                showSymbol: false
+                showSymbol: false,
+                emphasis: { focus: 'series' as const },
             };
         });
 
         returnChart.current.setOption({
             title: { text: '收益率走势（%）', left: 'center', textStyle: { fontSize: 16, fontWeight: 'bold' } },
             legend: { top: 40, left: 'center' },
-            tooltip: { trigger: 'axis' },
+            tooltip: { trigger: 'axis', valueFormatter: (v: unknown) => v == null ? '—' : `${Number(v).toFixed(2)}%` },
             grid: { left: '10%', right: '6%', bottom: '18%', top: '18%' },
-            xAxis: { type: 'category', data: x, axisLabel: { rotate: 20 } },
+            xAxis: { type: 'time', axisLabel: { rotate: 20 } },
             yAxis: { type: 'value', name: '收益率(%)' },
             dataZoom: [{ type: 'slider', bottom: 5 }, { type: 'inside' }],
             series
         } as Record<string, unknown>, true);
     };
 
-    // 渲染回撤图表
+    // 渲染回撤图表（同样改 time 轴 + [date, dd] 数据点）
     const renderDrawdown = () => {
         if (!drawdownChart.current || !chartProductList.length) return;
-        const dates = getAllDates();
-        const x = dates.map(formatDate);
         const series = chartProductList.map((p, i) => {
             const s = getSeriesStyle(p.isBenchmark, i);
+            const data = p.drawdownValues.map(d => [d.date, d.value]);
             return {
                 name: displayName(p),
                 type: 'line' as const,
                 smooth: true,
-                data: dates.map(d => p.drawdownValues.find(v => v.date === d)?.value),
+                data,
                 lineStyle: { color: s.lineColor, width: s.width, type: s.lineType },
                 itemStyle: { color: s.itemColor },
-                showSymbol: false
+                showSymbol: false,
+                emphasis: { focus: 'series' as const },
             };
         });
 
         drawdownChart.current.setOption({
             title: { text: '最大回撤（%）', left: 'center', textStyle: { fontSize: 16, fontWeight: 'bold' } },
             legend: { top: 40, left: 'center' },
-            tooltip: { trigger: 'axis' },
+            tooltip: { trigger: 'axis', valueFormatter: (v: unknown) => v == null ? '—' : `${Number(v).toFixed(2)}%` },
             grid: { left: '10%', right: '6%', bottom: '18%', top: '18%' },
-            xAxis: { type: 'category', data: x, axisLabel: { rotate: 20 } },
+            xAxis: { type: 'time', axisLabel: { rotate: 20 } },
             yAxis: { type: 'value', name: '回撤(%)' },
             dataZoom: [{ type: 'slider', bottom: 5 }, { type: 'inside' }],
             series
