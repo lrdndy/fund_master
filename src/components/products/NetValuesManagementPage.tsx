@@ -2,8 +2,14 @@
 import { useEffect, useRef, useState } from 'react';
 import * as echarts from 'echarts';
 import type { CSSProperties } from 'react';
-import { productApi } from '@/lib/api';
+import { productApi, benchmarkApi } from '@/lib/api';
 import useProductTags from '@/hooks/useProductTags';
+import {
+    computeBundle,
+    normalizePoints,
+    DEFAULT_RISK_FREE,
+    MetricBundle,
+} from '@/lib/metrics';
 import type {
     Product,
     ProductNetValue,
@@ -14,6 +20,8 @@ import type {
     StrategyType,
     FofOwnTag,
     CustomTag,
+    BenchmarkIndex,
+    BenchmarkNetValuePoint,
 } from '@/lib/types';
 
 // 类型定义
@@ -21,7 +29,8 @@ interface ValidNetValue { date: string; value: number }
 interface ChartProductData {
     id: number;
     name: string;
-    isBenchmark: boolean;
+    isBenchmark: boolean;  // 用作基准（虚线展示）
+    isIndex?: boolean;     // 区分：来自基准指数表，而非产品
     netValues: ValidNetValue[];
     drawdownValues: { date: string; value: number }[];
 }
@@ -31,11 +40,8 @@ type TimeRangeType = 'inception' | 'ytd' | '1m' | '3m' | '6m' | '1y' | 'custom';
 interface ProductIndicator {
     name: string;
     isBenchmark: boolean;
-    totalReturn: string;
-    annualReturn: string;
-    maxDrawdown: string;
-    annualVolatility: string;
-    sharpeRatio: string;
+    isIndex?: boolean;
+    bundle: MetricBundle;
 }
 
 interface CorrelationDataPoint {
@@ -81,48 +87,34 @@ const calculateMaxDrawdown = (netValues: ValidNetValue[]) => {
     return drawdownList;
 };
 
-// 金融指标计算
-const RISK_FREE_RATE = 0.025;
-const TRADING_DAYS = 252;
-const calcTotalReturn = (values: number[]): number => values.length < 2 ? 0 : ((values.at(-1)! / values[0]) - 1) * 100;
-const calcAnnualReturn = (values: number[], days: number): number => {
-    if (days <= 0 || values.length < 2) return 0;
-    const total = (values.at(-1)! / values[0]) - 1;
-    return (Math.pow(1 + total, 365 / days) - 1) * 100;
-};
-const calcIntervalDays = (dates: string[]): number => {
-    if (dates.length < 2) return 0;
-    return Math.floor((new Date(dates.at(-1)!).getTime() - new Date(dates[0]).getTime()) / 86400000);
-};
-const calcAnnualVolatility = (values: number[]): string => {
-    if (values.length < 2) return '0.00';
-    const returns = values.slice(1).map((v, i) => v / values[i] - 1);
-    const mean = returns.reduce((a, b) => a + b, 0) / returns.length;
-    const variance = returns.reduce((a, b) => a + (b - mean) ** 2, 0) / returns.length;
-    return (Math.sqrt(variance) * Math.sqrt(TRADING_DAYS) * 100).toFixed(2);
-};
-const calcSharpeRatio = (annualReturn: number, volatility: string): string => {
-    const vol = Number(volatility);
-    return vol === 0 ? '0.00' : ((annualReturn / 100 - RISK_FREE_RATE) / (vol / 100)).toFixed(2);
-};
+// 金融指标计算（公式统一走 lib/metrics.ts：252 交易日年化 + 2.5% 无风险利率）
 const generateProductIndicators = (list: ChartProductData[]): ProductIndicator[] => list.map(item => {
-    const values = item.netValues.map(v => v.value);
-    const dates = item.netValues.map(v => v.date);
-    const days = calcIntervalDays(dates);
-    const total = calcTotalReturn(values);
-    const annual = calcAnnualReturn(values, days);
-    const dd = Math.min(...item.drawdownValues.map(d => d.value));
-    const vol = calcAnnualVolatility(values);
+    const pts = normalizePoints(item.netValues);
     return {
         name: item.name,
         isBenchmark: item.isBenchmark,
-        totalReturn: `${total.toFixed(2)}%`,
-        annualReturn: `${annual.toFixed(2)}%`,
-        maxDrawdown: `${dd.toFixed(2)}%`,
-        annualVolatility: `${vol}%`,
-        sharpeRatio: calcSharpeRatio(annual, vol)
+        isIndex: item.isIndex,
+        bundle: computeBundle(pts, pts, DEFAULT_RISK_FREE),
     };
 });
+
+const fmtPct = (n: number | null, digits = 2): string => {
+    if (n === null || n === undefined || Number.isNaN(n)) return '—';
+    const sign = n > 0 ? '+' : '';
+    return `${sign}${(n * 100).toFixed(digits)}%`;
+};
+
+const fmtNum = (n: number | null, digits = 2): string => {
+    if (n === null || n === undefined || Number.isNaN(n)) return '—';
+    return n.toFixed(digits);
+};
+
+const returnTextStyle = (n: number | null): CSSProperties => {
+    if (n === null || n === undefined || Number.isNaN(n)) return { color: '#9ca3af' };
+    if (n > 0) return { color: '#dc2626' };
+    if (n < 0) return { color: '#16a34a' };
+    return { color: '#1f2937' };
+};
 
 // 相关性计算
 const calculateCorrelation = (a: ValidNetValue[], b: ValidNetValue[]) => {
@@ -191,7 +183,11 @@ const STYLES: Record<string, CSSProperties> = {
 };
 
 // 常量
-const STORAGE_KEYS = { BENCHMARK_ID: 'selected_benchmark_id', COMPARE_IDS: 'selected_compare_ids' };
+const STORAGE_KEYS = {
+    BENCHMARK_ID: 'selected_benchmark_id',
+    COMPARE_IDS: 'selected_compare_ids',
+    INDEX_IDS: 'selected_index_ids',
+};
 const timeBtns = [
     { label: '成立以来', value: 'inception' }, { label: '今年以来', value: 'ytd' }, { label: '近1月', value: '1m' },
     { label: '近3月', value: '3m' }, { label: '近半年', value: '6m' }, { label: '近1年', value: '1y' }, { label: '自定义', value: 'custom' }
@@ -214,6 +210,11 @@ export default function NetValuesManagementPage() {
     const [timeRange, setTimeRange] = useState<TimeRangeType>('1y');
     const [customStartDate, setCustomStartDate] = useState('');
     const [customEndDate, setCustomEndDate] = useState(new Date().toISOString().split('T')[0]);
+
+    // 基准指数（从 /benchmarks 拿，与"基准产品"并存）
+    const [benchmarks, setBenchmarks] = useState<BenchmarkIndex[]>([]);
+    const [selectedIndexIds, setSelectedIndexIds] = useState<number[]>([]);
+    const [indexSeriesMap, setIndexSeriesMap] = useState<Record<number, BenchmarkNetValuePoint[]>>({});
 
     // 标签 Hook
     const { tags, tagsLoading, tagsError } = useProductTags();
@@ -302,7 +303,57 @@ export default function NetValuesManagementPage() {
             ? localStorage.setItem(STORAGE_KEYS.BENCHMARK_ID, String(selectedBenchmark.id))
             : localStorage.removeItem(STORAGE_KEYS.BENCHMARK_ID);
         localStorage.setItem(STORAGE_KEYS.COMPARE_IDS, JSON.stringify(selectedCompares.map(p => p.id)));
-    }, [selectedBenchmark, selectedCompares]);
+        localStorage.setItem(STORAGE_KEYS.INDEX_IDS, JSON.stringify(selectedIndexIds));
+    }, [selectedBenchmark, selectedCompares, selectedIndexIds]);
+
+    // 加载基准指数列表 + 恢复上次选中
+    useEffect(() => {
+        const loadBenchmarks = async () => {
+            try {
+                const res = await benchmarkApi.getBenchmarks();
+                setBenchmarks(res.results ?? []);
+                const stored = localStorage.getItem(STORAGE_KEYS.INDEX_IDS);
+                if (stored) {
+                    try {
+                        const ids = JSON.parse(stored) as number[];
+                        const valid = (res.results ?? []).map(b => b.id);
+                        setSelectedIndexIds(ids.filter(id => valid.includes(id)));
+                    } catch {}
+                }
+            } catch (err) {
+                console.error('加载基准指数失败', err);
+            }
+        };
+        void loadBenchmarks();
+    }, []);
+
+    // 选中指数变化时，按需异步拉对应净值（缓存命中跳过）
+    useEffect(() => {
+        if (selectedIndexIds.length === 0) return;
+        let cancelled = false;
+        const loadAll = async () => {
+            const toFetch = selectedIndexIds.filter(id => !indexSeriesMap[id]);
+            if (toFetch.length === 0) return;
+            try {
+                const results = await Promise.all(
+                    toFetch.map(async id => {
+                        const res = await benchmarkApi.getBenchmarkNetValues(id);
+                        return { id, points: res.results ?? [] };
+                    }),
+                );
+                if (cancelled) return;
+                setIndexSeriesMap(prev => {
+                    const next = { ...prev };
+                    results.forEach(r => { next[r.id] = r.points; });
+                    return next;
+                });
+            } catch (err) {
+                console.error('加载基准净值失败', err);
+            }
+        };
+        void loadAll();
+        return () => { cancelled = true; };
+    }, [selectedIndexIds, indexSeriesMap]);
 
     // 时间范围过滤净值数据
     const filterNetValuesByTime = (netValues: ValidNetValue[]): ValidNetValue[] => {
@@ -326,7 +377,8 @@ export default function NetValuesManagementPage() {
 
     // 加载净值数据（对齐 api.ts 接口）
     useEffect(() => {
-        if (!selectedBenchmark && !selectedCompares.length) {
+        const hasIndex = selectedIndexIds.some(id => indexSeriesMap[id]);
+        if (!selectedBenchmark && !selectedCompares.length && !hasIndex) {
             setChartProductList([]);
             return;
         }
@@ -335,10 +387,16 @@ export default function NetValuesManagementPage() {
             setChartLoading(true);
             const list: ChartProductData[] = [];
 
-            // 转换后端净值数据为标准格式
+            // 产品净值 -> ValidNetValue[]
             const toValid = (rs: ProductNetValue[]): ValidNetValue[] => (rs ?? [])
                 .filter(r => r.net_value_date && r.cumulative_unit_net_value != null && !isNaN(+r.cumulative_unit_net_value))
                 .map(r => ({ date: r.net_value_date.trim(), value: +r.cumulative_unit_net_value! }))
+                .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+            // 指数日 K -> ValidNetValue[]（用 close_price 当净值）
+            const toValidIdx = (rs: BenchmarkNetValuePoint[]): ValidNetValue[] => (rs ?? [])
+                .filter(r => r.net_value_date && r.close_price != null && !isNaN(+r.close_price))
+                .map(r => ({ date: r.net_value_date.trim(), value: +r.close_price }))
                 .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
             // 加载基准产品
@@ -351,7 +409,7 @@ export default function NetValuesManagementPage() {
                         name: selectedBenchmark.product_name || `产品${selectedBenchmark.id}`,
                         isBenchmark: true,
                         netValues: nv,
-                        drawdownValues: calculateMaxDrawdown(nv)
+                        drawdownValues: calculateMaxDrawdown(nv),
                     });
                 }
             }
@@ -366,7 +424,25 @@ export default function NetValuesManagementPage() {
                         name: p.product_name || `产品${p.id}`,
                         isBenchmark: false,
                         netValues: nv,
-                        drawdownValues: calculateMaxDrawdown(nv)
+                        drawdownValues: calculateMaxDrawdown(nv),
+                    });
+                }
+            }
+
+            // 加载基准指数（已经缓存到 indexSeriesMap）
+            for (const id of selectedIndexIds) {
+                const cached = indexSeriesMap[id];
+                if (!cached) continue;
+                const idx = benchmarks.find(b => b.id === id);
+                const nv = filterNetValuesByTime(toValidIdx(cached));
+                if (nv.length) {
+                    list.push({
+                        id: -id, // 取负避免与产品 id 冲突
+                        name: idx?.index_short_name || idx?.index_name || `指数#${id}`,
+                        isBenchmark: true,
+                        isIndex: true,
+                        netValues: nv,
+                        drawdownValues: calculateMaxDrawdown(nv),
                     });
                 }
             }
@@ -380,7 +456,7 @@ export default function NetValuesManagementPage() {
             setChartError('数据加载失败');
             setChartLoading(false);
         });
-    }, [selectedBenchmark, selectedCompares, timeRange, customStartDate, customEndDate]);
+    }, [selectedBenchmark, selectedCompares, selectedIndexIds, indexSeriesMap, timeRange, customStartDate, customEndDate, benchmarks]);
 
     // 计算产品指标
     useEffect(() => {
@@ -390,6 +466,13 @@ export default function NetValuesManagementPage() {
     // 获取所有日期
     const getAllDates = () => Array.from(new Set(chartProductList.flatMap(p => p.netValues.map(v => v.date)))).sort();
 
+    // 图例/表格显示用：指数加 [指数]、基准产品加 [基准]
+    const displayName = (p: ChartProductData | ProductIndicator): string => {
+        if (p.isIndex) return `[指数] ${p.name}`;
+        if (p.isBenchmark) return `[基准] ${p.name}`;
+        return p.name;
+    };
+
     // 渲染净值图表
     const renderNetValue = () => {
         if (!netValueChart.current || !chartProductList.length) return;
@@ -398,7 +481,7 @@ export default function NetValuesManagementPage() {
         const series = chartProductList.map((p, i) => {
             const s = getSeriesStyle(p.isBenchmark, i);
             return {
-                name: p.isBenchmark ? `[基准] ${p.name}` : p.name,
+                name: displayName(p),
                 type: 'line' as const,
                 smooth: true,
                 data: dates.map(d => p.netValues.find(v => v.date === d)?.value),
@@ -437,7 +520,7 @@ export default function NetValuesManagementPage() {
             const s = getSeriesStyle(p.isBenchmark, i);
             const base = p.netValues[0]?.value || 1;
             return {
-                name: p.isBenchmark ? `[基准] ${p.name}` : p.name,
+                name: displayName(p),
                 type: 'line' as const,
                 smooth: true,
                 data: dates.map(d => {
@@ -470,7 +553,7 @@ export default function NetValuesManagementPage() {
         const series = chartProductList.map((p, i) => {
             const s = getSeriesStyle(p.isBenchmark, i);
             return {
-                name: p.isBenchmark ? `[基准] ${p.name}` : p.name,
+                name: displayName(p),
                 type: 'line' as const,
                 smooth: true,
                 data: dates.map(d => p.drawdownValues.find(v => v.date === d)?.value),
@@ -492,10 +575,15 @@ export default function NetValuesManagementPage() {
         } as Record<string, unknown>, true);
     };
 
-    // 渲染相关性矩阵
+    // 渲染相关性矩阵（仅产品，不含指数）
     const renderCorrelation = () => {
-        if (!corrChart.current || chartProductList.length < 2) return;
-        const names = chartProductList.map(p => p.name);
+        if (!corrChart.current) return;
+        const productOnly = chartProductList.filter(p => !p.isIndex);
+        if (productOnly.length < 2) {
+            corrChart.current.clear();
+            return;
+        }
+        const names = productOnly.map(p => p.name);
         const data: CorrelationDataPoint[] = [];
 
         for (let i = 0; i < names.length; i++) {
@@ -504,13 +592,13 @@ export default function NetValuesManagementPage() {
                     data.push({
                         name: [names[j], names[i]],
                         value: [j, i, 1],
-                        start: chartProductList[i].netValues[0]?.date || '',
-                        end: chartProductList[i].netValues.at(-1)?.date || '',
-                        count: chartProductList[i].netValues.length
+                        start: productOnly[i].netValues[0]?.date || '',
+                        end: productOnly[i].netValues.at(-1)?.date || '',
+                        count: productOnly[i].netValues.length
                     });
                     continue;
                 }
-                const { corr, start, end, count } = calculateCorrelation(chartProductList[i].netValues, chartProductList[j].netValues);
+                const { corr, start, end, count } = calculateCorrelation(productOnly[i].netValues, productOnly[j].netValues);
                 data.push({ name: [names[j], names[i]], value: [j, i, corr], start, end, count });
             }
         }
@@ -561,6 +649,10 @@ export default function NetValuesManagementPage() {
     );
     const remove = (p: Product, t: 'benchmark' | 'compare') =>
         t === 'benchmark' ? setSelectedBenchmark(null) : setSelectedCompares(prev => prev.filter(x => x.id !== p.id));
+
+    const toggleIndex = (id: number) =>
+        setSelectedIndexIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+    const clearIndexes = () => setSelectedIndexIds([]);
 
     // 渲染 UI
     return (
@@ -679,6 +771,54 @@ export default function NetValuesManagementPage() {
                 </div>
             </div>
 
+            {/* 基准指数（市场指数对比） */}
+            <div style={STYLES.filterCard}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: '#1f2937' }}>对比基准指数</div>
+                    {selectedIndexIds.length > 0 && (
+                        <button
+                            onClick={clearIndexes}
+                            style={{ fontSize: 12, color: '#6b7280', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}
+                        >
+                            清空
+                        </button>
+                    )}
+                </div>
+                {benchmarks.length === 0 ? (
+                    <div style={STYLES.emptyText}>暂无可选基准指数（请先在后端同步指数）</div>
+                ) : (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                        {benchmarks.map(b => {
+                            const checked = selectedIndexIds.includes(b.id);
+                            return (
+                                <label
+                                    key={b.id}
+                                    style={{
+                                        padding: '4px 10px',
+                                        borderRadius: 16,
+                                        fontSize: 12,
+                                        cursor: 'pointer',
+                                        borderWidth: 1,
+                                        borderStyle: 'solid',
+                                        borderColor: checked ? '#3b82f6' : '#d1d5db',
+                                        background: checked ? '#eff6ff' : '#fff',
+                                        color: checked ? '#1d4ed8' : '#4b5563',
+                                    }}
+                                >
+                                    <input
+                                        type="checkbox"
+                                        style={{ display: 'none' }}
+                                        checked={checked}
+                                        onChange={() => toggleIndex(b.id)}
+                                    />
+                                    {b.index_short_name || b.index_name}
+                                </label>
+                            );
+                        })}
+                    </div>
+                )}
+            </div>
+
             {/* 时间筛选 */}
             <div style={STYLES.timeFilterBar}>
                 {timeBtns.map(btn => (
@@ -706,30 +846,48 @@ export default function NetValuesManagementPage() {
 
             {/* 指标表格 */}
             {productIndicators.length > 0 && (
-                <div style={STYLES.tableContainer}>
-                    <div style={STYLES.tableTitle}>产品指标汇总</div>
+                <div style={{ ...STYLES.tableContainer, overflowX: 'auto' }}>
+                    <div style={STYLES.tableTitle}>
+                        产品指标汇总
+                        <span style={{ fontSize: 12, color: '#9ca3af', fontWeight: 400, marginLeft: 8 }}>
+                            （无风险利率 {(DEFAULT_RISK_FREE * 100).toFixed(1)}%，年化按 252 交易日）
+                        </span>
+                    </div>
                     <table style={STYLES.table}>
                         <thead>
                         <tr>
-                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>产品</th>
+                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>名称</th>
+                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>近一周</th>
+                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>近一月</th>
+                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>近三月</th>
+                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>近一年</th>
+                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>YTD</th>
                             <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>累计收益</th>
                             <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>年化收益</th>
                             <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>最大回撤</th>
                             <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>年化波动</th>
-                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>夏普比率</th>
+                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>夏普</th>
                         </tr>
                         </thead>
                         <tbody>
-                        {productIndicators.map((item, i) => (
-                            <tr key={i} style={item.isBenchmark ? STYLES.benchmarkRow : undefined}>
-                                <td style={STYLES.tableCell}>{item.isBenchmark ? '[基准] ' + item.name : item.name}</td>
-                                <td style={STYLES.tableCell}>{item.totalReturn}</td>
-                                <td style={STYLES.tableCell}>{item.annualReturn}</td>
-                                <td style={STYLES.tableCell}>{item.maxDrawdown}</td>
-                                <td style={STYLES.tableCell}>{item.annualVolatility}</td>
-                                <td style={STYLES.tableCell}>{item.sharpeRatio}</td>
-                            </tr>
-                        ))}
+                        {productIndicators.map((item, i) => {
+                            const b = item.bundle;
+                            return (
+                                <tr key={i} style={item.isBenchmark ? STYLES.benchmarkRow : undefined}>
+                                    <td style={STYLES.tableCell}>{displayName(item)}</td>
+                                    <td style={{ ...STYLES.tableCell, ...returnTextStyle(b.r1w) }}>{fmtPct(b.r1w)}</td>
+                                    <td style={{ ...STYLES.tableCell, ...returnTextStyle(b.r1m) }}>{fmtPct(b.r1m)}</td>
+                                    <td style={{ ...STYLES.tableCell, ...returnTextStyle(b.r3m) }}>{fmtPct(b.r3m)}</td>
+                                    <td style={{ ...STYLES.tableCell, ...returnTextStyle(b.r1y) }}>{fmtPct(b.r1y)}</td>
+                                    <td style={{ ...STYLES.tableCell, ...returnTextStyle(b.rYtd) }}>{fmtPct(b.rYtd)}</td>
+                                    <td style={{ ...STYLES.tableCell, ...returnTextStyle(b.totalReturn) }}>{fmtPct(b.totalReturn)}</td>
+                                    <td style={{ ...STYLES.tableCell, ...returnTextStyle(b.annRet) }}>{fmtPct(b.annRet)}</td>
+                                    <td style={STYLES.tableCell}>{fmtPct(b.mdd)}</td>
+                                    <td style={STYLES.tableCell}>{fmtPct(b.annVol)}</td>
+                                    <td style={STYLES.tableCell}>{fmtNum(b.sharpe)}</td>
+                                </tr>
+                            );
+                        })}
                         </tbody>
                     </table>
                 </div>
