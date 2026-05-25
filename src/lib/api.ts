@@ -4,7 +4,8 @@ import {
     ApiResponse, CycleTag, Product, ProductFormData, QuantType,
     AlgorithmType, StrategyType, ProductNetValue, ProductCorrelation,
     NetValueApiResponse, CsvImportResponse, SingleNetValueRequest, UserInfo, FofOwnTag, CustomTag,
-    BenchmarkIndex, BenchmarkNetValuePoint, BenchmarkIndexInput, BenchmarkCsvImportResponse
+    BenchmarkIndex, BenchmarkNetValuePoint, BenchmarkIndexInput, BenchmarkCsvImportResponse,
+    BenchmarkMissingDatesResponse, BenchmarkUpsertResponse
 } from './types';
 
 // axios实例配置（对齐后端路由，无/api前缀）
@@ -293,6 +294,36 @@ export const benchmarkApi = {
         const res = await api.post<BenchmarkCsvImportResponse>(
             `/benchmarks/csv_import/?target_index_id=${indexId}`,
             formData,
+        );
+        return res.data;
+    },
+    upsertBenchmarkNetValue: async (
+        indexId: number,
+        netValueDate: string,
+        closePrice: number,
+    ): Promise<BenchmarkUpsertResponse> => {
+        const res = await api.post<BenchmarkUpsertResponse>(
+            `/benchmarks/${indexId}/upsert_net_value/`,
+            { net_value_date: netValueDate, close_price: closePrice },
+        );
+        return res.data;
+    },
+    deleteBenchmarkNetValue: async (indexId: number, netValueDate: string): Promise<void> => {
+        await api.delete(`/benchmarks/${indexId}/delete_net_value/`, {
+            params: { net_value_date: netValueDate },
+        });
+    },
+    getBenchmarkMissingDates: async (
+        indexId: number,
+        start?: string,
+        end?: string,
+    ): Promise<BenchmarkMissingDatesResponse> => {
+        const params: Record<string, string> = {};
+        if (start) params.start = start;
+        if (end) params.end = end;
+        const res = await api.get<BenchmarkMissingDatesResponse>(
+            `/benchmarks/${indexId}/missing_dates/`,
+            { params },
         );
         return res.data;
     },
