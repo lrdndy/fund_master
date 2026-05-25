@@ -4,7 +4,7 @@ import {
     ApiResponse, CycleTag, Product, ProductFormData, QuantType,
     AlgorithmType, StrategyType, ProductNetValue, ProductCorrelation,
     NetValueApiResponse, CsvImportResponse, SingleNetValueRequest, UserInfo, FofOwnTag, CustomTag,
-    BenchmarkIndex, BenchmarkNetValuePoint
+    BenchmarkIndex, BenchmarkNetValuePoint, BenchmarkIndexInput, BenchmarkCsvImportResponse
 } from './types';
 
 // axios实例配置（对齐后端路由，无/api前缀）
@@ -246,9 +246,27 @@ export const netValueApi = {
 
 // ==================== 基准指数 API ====================
 export const benchmarkApi = {
-    getBenchmarks: async (): Promise<ApiResponse<BenchmarkIndex>> => {
-        const res = await api.get<ApiResponse<BenchmarkIndex>>('/benchmarks/');
+    getBenchmarks: async (params: { search?: string; include_invalid?: boolean } = {}): Promise<ApiResponse<BenchmarkIndex>> => {
+        const query: Record<string, string> = {};
+        if (params.search) query.search = params.search;
+        if (params.include_invalid) query.include_invalid = '1';
+        const res = await api.get<ApiResponse<BenchmarkIndex>>('/benchmarks/', { params: query });
         return res.data;
+    },
+    getBenchmark: async (id: number): Promise<BenchmarkIndex> => {
+        const res = await api.get<BenchmarkIndex>(`/benchmarks/${id}/`);
+        return res.data;
+    },
+    createBenchmark: async (data: BenchmarkIndexInput): Promise<BenchmarkIndex> => {
+        const res = await api.post<BenchmarkIndex>('/benchmarks/', data);
+        return res.data;
+    },
+    updateBenchmark: async (id: number, data: Partial<BenchmarkIndexInput>): Promise<BenchmarkIndex> => {
+        const res = await api.patch<BenchmarkIndex>(`/benchmarks/${id}/`, data);
+        return res.data;
+    },
+    deleteBenchmark: async (id: number): Promise<void> => {
+        await api.delete(`/benchmarks/${id}/`);
     },
     getBenchmarkNetValues: async (
         id: number,
@@ -261,6 +279,20 @@ export const benchmarkApi = {
         const res = await api.get<{ count: number; results: BenchmarkNetValuePoint[] }>(
             `/benchmarks/${id}/net_values/`,
             { params },
+        );
+        return res.data;
+    },
+    importBenchmarkNetValuesCsv: async (
+        indexId: number,
+        file: File,
+        isCover = false,
+    ): Promise<BenchmarkCsvImportResponse> => {
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('is_cover', String(isCover));
+        const res = await api.post<BenchmarkCsvImportResponse>(
+            `/benchmarks/csv_import/?target_index_id=${indexId}`,
+            formData,
         );
         return res.data;
     },

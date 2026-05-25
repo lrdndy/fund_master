@@ -130,7 +130,28 @@ export interface BenchmarkIndex {
     index_name: string;
     index_short_name?: string | null;
     exchange?: string | null;
+    em_secid_override?: string | null;
     is_valid: boolean;
+    create_time?: string;
+    update_time?: string;
+}
+
+export type BenchmarkExchange = 'SH' | 'SZ' | 'CSI' | 'BJ' | 'MOCK';
+
+export interface BenchmarkIndexInput {
+    index_code: string;
+    index_name: string;
+    index_short_name?: string;
+    exchange?: BenchmarkExchange | '';
+    em_secid_override?: string;
+    is_valid?: boolean;
+}
+
+export interface BenchmarkCsvImportResponse {
+    code: number;
+    message: string;
+    summary?: { total: number; success: number; failed: number; created: number; updated: number };
+    failed_records?: Array<{ row_num: number; data: Record<string, string>; reason: string }>;
 }
 
 export interface BenchmarkNetValuePoint {
