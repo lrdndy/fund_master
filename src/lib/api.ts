@@ -313,6 +313,13 @@ export const benchmarkApi = {
             params: { net_value_date: netValueDate },
         });
     },
+    exportBenchmarkCsv: async (indexId: number, start?: string, end?: string): Promise<{ blob: Blob; fileName: string }> => {
+        const params: Record<string, string> = {};
+        if (start) params.start = start;
+        if (end) params.end = end;
+        const res = await api.get(`/benchmarks/${indexId}/export_csv/`, { params, responseType: 'blob' });
+        return { blob: res.data as Blob, fileName: res.headers['content-disposition'] ?? '' };
+    },
     getBenchmarkMissingDates: async (
         indexId: number,
         start?: string,
