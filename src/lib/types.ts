@@ -158,7 +158,7 @@ export interface BenchmarkMissingDatesResponse {
     start: string | null;
     end: string;
     missing_dates: string[];
-    reference_count: number;
+    weekday_count: number; // 范围内工作日总数（周一~周五）
 }
 
 export interface BenchmarkUpsertResponse {

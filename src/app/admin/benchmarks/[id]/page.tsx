@@ -223,14 +223,14 @@ export default function BenchmarkDetailPage() {
                 {!loading && netValues.length === 0 && <div className="text-center text-gray-500 text-sm py-8">暂无净值数据，可点右上"新增净值"或在列表页用 CSV 导入</div>}
             </div>
 
-            {/* 缺失交易日 */}
+            {/* 缺失工作日 */}
             <div className="bg-white border border-gray-200 rounded p-4 space-y-3">
                 <div className="flex items-center justify-between flex-wrap gap-2">
                     <div>
-                        <h3 className="text-base font-semibold text-gray-800">缺失交易日</h3>
+                        <h3 className="text-base font-semibold text-gray-800">缺失工作日</h3>
                         <p className="text-xs text-gray-500 mt-0.5">
-                            参考其他有效基准的日期合集判定（在其他基准里有数据、当前基准缺失的日期）
-                            {missing && <> · 参考日期池 {missing.reference_count} 天</>}
+                            列出区间内周一~周五缺失的日期（已排除周末）。法定节假日休市会出现在列表中，请人工识别后再补录。
+                            {missing && <> · 区间内工作日 {missing.weekday_count} 天</>}
                         </p>
                     </div>
                     <div className="flex items-center gap-2 text-sm">
@@ -257,23 +257,31 @@ export default function BenchmarkDetailPage() {
                 </div>
                 {!missing ? (
                     <div className="text-sm text-gray-500">加载中...</div>
-                ) : missing.reference_count === 0 ? (
-                    <div className="text-sm text-gray-500">暂无其他基准作为交易日参考，无法判定缺失</div>
+                ) : !missing.start ? (
+                    <div className="text-sm text-gray-500">尚未导入任何数据，无法计算区间。请先在列表页或上方"新增净值"补一条。</div>
                 ) : missing.missing_dates.length === 0 ? (
                     <div className="text-sm text-green-700 bg-green-50 border border-green-200 rounded p-2">
-                        ✓ 当前基准在 {missing.start} ~ {missing.end} 内无明显缺失
+                        ✓ 当前基准在 {missing.start} ~ {missing.end} 内所有工作日均有数据
                     </div>
                 ) : (
                     <div className="border border-orange-200 rounded">
                         <div className="bg-orange-50 px-3 py-2 text-sm text-orange-800 border-b border-orange-200">
-                            发现 {missing.missing_dates.length} 个可能缺失的交易日
+                            {missing.missing_dates.length} / {missing.weekday_count} 个工作日缺失 — 其中可能含法定节假日，请人工判断
                         </div>
                         <div className="max-h-64 overflow-y-auto">
                             <table className="w-full text-sm">
+                                <thead className="text-xs text-gray-500 bg-gray-50 sticky top-0">
+                                    <tr>
+                                        <th className="px-3 py-1.5 text-left font-normal">日期</th>
+                                        <th className="px-3 py-1.5 text-left font-normal">星期</th>
+                                        <th className="px-3 py-1.5 text-right font-normal">操作</th>
+                                    </tr>
+                                </thead>
                                 <tbody>
                                     {missing.missing_dates.map(d => (
                                         <tr key={d} className="border-t border-gray-100 hover:bg-gray-50">
                                             <td className="px-3 py-2 font-mono text-gray-700">{d}</td>
+                                            <td className="px-3 py-2 text-xs text-gray-500">{weekdayLabel(d)}</td>
                                             <td className="px-3 py-2 text-right">
                                                 <button
                                                     onClick={() => { setEditing({ date: d, close: '', isNew: true }); setEditError(null); }}
@@ -414,6 +422,12 @@ export default function BenchmarkDetailPage() {
             )}
         </div>
     );
+}
+
+const WEEKDAY_NAMES = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+function weekdayLabel(dateStr: string): string {
+    const d = new Date(dateStr);
+    return Number.isNaN(d.getTime()) ? '' : WEEKDAY_NAMES[d.getDay()];
 }
 
 function Field({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
