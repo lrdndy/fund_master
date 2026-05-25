@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import * as echarts from 'echarts';
-import { benchmarkApi } from '@/lib/api';
+import { benchmarkApi, downloadUtils } from '@/lib/api';
 import type {
     BenchmarkIndex,
     BenchmarkNetValuePoint,
@@ -151,6 +151,17 @@ export default function BenchmarkDetailPage() {
         }
     };
 
+    const handleExport = async () => {
+        try {
+            const { blob } = await benchmarkApi.exportBenchmarkCsv(id);
+            const filename = `${info?.index_code ?? `benchmark_${id}`}_net_values.csv`;
+            downloadUtils.downloadBlobFile(blob, filename);
+        } catch (e) {
+            console.error(e);
+            alert('导出失败');
+        }
+    };
+
     const handleDelete = async (date: string) => {
         if (!confirm(`确认删除 ${date} 的数据？`)) return;
         try {
@@ -192,6 +203,14 @@ export default function BenchmarkDetailPage() {
                             className="px-3 py-1.5 text-sm bg-gray-100 text-gray-700 rounded hover:bg-gray-200"
                         >
                             编辑信息
+                        </button>
+                        <button
+                            onClick={handleExport}
+                            disabled={netValues.length === 0}
+                            className="px-3 py-1.5 text-sm bg-gray-100 text-gray-700 rounded hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                            title="导出 CSV，表头与上传格式一致，可直接回灌"
+                        >
+                            导出 CSV
                         </button>
                         <button
                             onClick={() => {
