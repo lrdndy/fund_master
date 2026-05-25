@@ -154,6 +154,19 @@ export interface BenchmarkCsvImportResponse {
     failed_records?: Array<{ row_num: number; data: Record<string, string>; reason: string }>;
 }
 
+export interface BenchmarkMissingDatesResponse {
+    start: string | null;
+    end: string;
+    missing_dates: string[];
+    reference_count: number;
+}
+
+export interface BenchmarkUpsertResponse {
+    code: number;
+    message: string;
+    result?: { net_value_date: string; close_price: string; created: boolean };
+}
+
 export interface BenchmarkNetValuePoint {
     net_value_date: string;
     close_price: number | string;

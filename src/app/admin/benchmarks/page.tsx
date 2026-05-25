@@ -144,7 +144,11 @@ export default function BenchmarksAdminPage() {
                         </thead>
                         <tbody>
                             {list.map(b => (
-                                <tr key={b.id} className="border-t border-gray-100 hover:bg-gray-50">
+                                <tr
+                                    key={b.id}
+                                    className="border-t border-gray-100 hover:bg-gray-50 cursor-pointer"
+                                    onClick={() => router.push(`/admin/benchmarks/${b.id}`)}
+                                >
                                     <td className="px-4 py-3 font-mono text-gray-800">{b.index_code}</td>
                                     <td className="px-4 py-3 text-gray-800">{b.index_name}</td>
                                     <td className="px-4 py-3 text-gray-600">{b.index_short_name || '—'}</td>
@@ -156,7 +160,13 @@ export default function BenchmarksAdminPage() {
                                             <span className="px-2 py-0.5 bg-gray-100 text-gray-500 rounded text-xs">已停用</span>
                                         )}
                                     </td>
-                                    <td className="px-4 py-3 space-x-2">
+                                    <td className="px-4 py-3 space-x-2" onClick={e => e.stopPropagation()}>
+                                        <button
+                                            onClick={() => router.push(`/admin/benchmarks/${b.id}`)}
+                                            className="text-blue-600 hover:underline text-xs"
+                                        >
+                                            详情
+                                        </button>
                                         <button
                                             onClick={() => router.push(`/admin/benchmarks/${b.id}/edit`)}
                                             className="text-blue-600 hover:underline text-xs"
