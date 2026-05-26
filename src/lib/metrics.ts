@@ -153,6 +153,35 @@ export function sharpeRatio(points: MetricPoint[], riskFree = DEFAULT_RISK_FREE)
     return (annRet - riskFree) / annVol;
 }
 
+// 两序列基于"日期对齐"的 Pearson 相关性。
+// 输入是 [{ date: 'YYYY-MM-DD', value: number }] 形式，返回相关系数 + 共同区间。
+export interface CorrSeriesPoint { date: string; value: number }
+export interface CorrelationResult { corr: number; start: string; end: string; count: number }
+export function calculateCorrelation(a: CorrSeriesPoint[], b: CorrSeriesPoint[]): CorrelationResult {
+    const mapA = new Map(a.map(v => [v.date, v.value]));
+    const common = b
+        .filter(v => mapA.has(v.date))
+        .map(v => ({ d: v.date, va: mapA.get(v.date)!, vb: v.value }))
+        .sort((x, y) => new Date(x.d).getTime() - new Date(y.d).getTime());
+    const n = common.length;
+    if (n < 2) return { corr: 0, start: '', end: '', count: 0 };
+    let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0, sumY2 = 0;
+    for (const c of common) {
+        sumX += c.va; sumY += c.vb;
+        sumXY += c.va * c.vb;
+        sumX2 += c.va ** 2; sumY2 += c.vb ** 2;
+    }
+    const denom = Math.sqrt((n * sumX2 - sumX ** 2) * (n * sumY2 - sumY ** 2));
+    if (denom === 0) return { corr: 0, start: common[0].d, end: common[n - 1].d, count: n };
+    const corr = (n * sumXY - sumX * sumY) / denom;
+    return {
+        corr: Number.isNaN(corr) ? 0 : Math.max(-1, Math.min(1, corr)),
+        start: common[0].d,
+        end: common[n - 1].d,
+        count: n,
+    };
+}
+
 export function computeBundle(
     allPoints: MetricPoint[],
     rangePoints: MetricPoint[],

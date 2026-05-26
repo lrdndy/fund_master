@@ -7,6 +7,7 @@ import useProductTags from '@/hooks/useProductTags';
 import {
     computeBundle,
     normalizePoints,
+    calculateCorrelation,
     DEFAULT_RISK_FREE,
     MetricBundle,
 } from '@/lib/metrics';
@@ -116,18 +117,7 @@ const returnTextStyle = (n: number | null): CSSProperties => {
     return { color: '#1f2937' };
 };
 
-// 相关性计算
-const calculateCorrelation = (a: ValidNetValue[], b: ValidNetValue[]) => {
-    const mapA = new Map(a.map(v => [v.date, v.value]));
-    const common = b.filter(v => mapA.has(v.date)).map(v => ({ d: v.date, va: mapA.get(v.date)!, vb: v.value }));
-    const n = common.length;
-    if (n < 2) return { corr: 0, start: '', end: '', count: 0 };
-    const sorted = common.sort((x, y) => new Date(x.d).getTime() - new Date(y.d).getTime());
-    let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0, sumY2 = 0;
-    sorted.forEach(c => { sumX += c.va; sumY += c.vb; sumXY += c.va * c.vb; sumX2 += c.va ** 2; sumY2 += c.vb ** 2; });
-    const corr = (n * sumXY - sumX * sumY) / Math.sqrt((n * sumX2 - sumX ** 2) * (n * sumY2 - sumY ** 2));
-    return { corr: isNaN(corr) ? 0 : Math.max(-1, Math.min(1, corr)), start: sorted[0].d, end: sorted.at(-1)!.d, count: n };
-};
+// 相关性计算已抽到 lib/metrics.ts 的 calculateCorrelation，两个页面共用
 
 // 图表样式
 interface SeriesStyle { lineColor: string; itemColor: string; lineType: 'solid' | 'dashed' | 'dotted'; width: number }
@@ -615,15 +605,15 @@ export default function NetValuesManagementPage() {
         } as Record<string, unknown>, true);
     };
 
-    // 渲染相关性矩阵（仅产品，不含指数）
+    // 渲染相关性矩阵（产品 + 基准指数全部参与；指数轴标签由 displayName 前缀 [指数] 区分）
     const renderCorrelation = () => {
         if (!corrChart.current) return;
-        const productOnly = chartProductList.filter(p => !p.isIndex);
-        if (productOnly.length < 2) {
+        const all = chartProductList;
+        if (all.length < 2) {
             corrChart.current.clear();
             return;
         }
-        const names = productOnly.map(p => p.name);
+        const names = all.map(displayName);
         const data: CorrelationDataPoint[] = [];
 
         for (let i = 0; i < names.length; i++) {
@@ -632,13 +622,13 @@ export default function NetValuesManagementPage() {
                     data.push({
                         name: [names[j], names[i]],
                         value: [j, i, 1],
-                        start: productOnly[i].netValues[0]?.date || '',
-                        end: productOnly[i].netValues.at(-1)?.date || '',
-                        count: productOnly[i].netValues.length
+                        start: all[i].netValues[0]?.date || '',
+                        end: all[i].netValues.at(-1)?.date || '',
+                        count: all[i].netValues.length
                     });
                     continue;
                 }
-                const { corr, start, end, count } = calculateCorrelation(productOnly[i].netValues, productOnly[j].netValues);
+                const { corr, start, end, count } = calculateCorrelation(all[i].netValues, all[j].netValues);
                 data.push({ name: [names[j], names[i]], value: [j, i, corr], start, end, count });
             }
         }
