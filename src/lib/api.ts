@@ -5,7 +5,8 @@ import {
     AlgorithmType, StrategyType, ProductNetValue, ProductCorrelation,
     NetValueApiResponse, CsvImportResponse, SingleNetValueRequest, UserInfo, FofOwnTag, CustomTag,
     BenchmarkIndex, BenchmarkNetValuePoint, BenchmarkIndexInput, BenchmarkCsvImportResponse,
-    BenchmarkMissingDatesResponse, BenchmarkUpsertResponse
+    BenchmarkMissingDatesResponse, BenchmarkUpsertResponse,
+    Basket, BasketInput
 } from './types';
 
 // axios实例配置（对齐后端路由，无/api前缀）
@@ -333,6 +334,25 @@ export const benchmarkApi = {
             { params },
         );
         return res.data;
+    },
+};
+
+// ==================== 篮子 (Basket) API ====================
+export const basketApi = {
+    getBaskets: async (): Promise<ApiResponse<Basket>> => {
+        const res = await api.get<ApiResponse<Basket>>('/baskets/');
+        return res.data;
+    },
+    createBasket: async (data: BasketInput): Promise<Basket> => {
+        const res = await api.post<Basket>('/baskets/', data);
+        return res.data;
+    },
+    updateBasket: async (id: number, data: Partial<BasketInput>): Promise<Basket> => {
+        const res = await api.patch<Basket>(`/baskets/${id}/`, data);
+        return res.data;
+    },
+    deleteBasket: async (id: number): Promise<void> => {
+        await api.delete(`/baskets/${id}/`);
     },
 };
 

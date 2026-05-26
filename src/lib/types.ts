@@ -167,6 +167,25 @@ export interface BenchmarkUpsertResponse {
     result?: { net_value_date: string; close_price: string; created: boolean };
 }
 
+export interface Basket {
+    id: number;
+    name: string;
+    description?: string | null;
+    owner?: number;
+    product_id_list: number[];
+    index_id_list: number[];
+    is_valid: boolean;
+    create_time?: string;
+    update_time?: string;
+}
+
+export interface BasketInput {
+    name: string;
+    description?: string;
+    product_ids?: number[];
+    index_ids?: number[];
+}
+
 export interface BenchmarkNetValuePoint {
     net_value_date: string;
     close_price: number | string;
