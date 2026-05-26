@@ -48,6 +48,7 @@ export default function ProductNetValueManager({ initialProductId }: ProductNetV
     });
     const [startDate, setStartDate] = useState<string>('');
     const [endDate, setEndDate] = useState<string>('');
+    const [dateKeyword, setDateKeyword] = useState<string>(''); // 净值日期模糊查（前缀 / 子串）
 
     useEffect(() => {
         const fetchProductAndNetValue = async () => {
@@ -80,7 +81,10 @@ export default function ProductNetValueManager({ initialProductId }: ProductNetV
                 startDate,
                 endDate
             );
-            const allList = netValueRes.results ?? [];
+            let allList = netValueRes.results ?? [];
+            // 关键字模糊查（如 "2024" / "2024-05" / "-13"）在前端做
+            const kw = dateKeyword.trim();
+            if (kw) allList = allList.filter(nv => (nv.net_value_date ?? '').includes(kw));
             setTotalCount(allList.length);
 
             const startIndex = (currentPage - 1) * pageSize;
@@ -93,6 +97,14 @@ export default function ProductNetValueManager({ initialProductId }: ProductNetV
             console.error('查询净值失败：', err);
         }
     };
+
+    // 筛选条件变化时回第 1 页并重新拉数据
+    useEffect(() => {
+        if (!product) return;
+        setCurrentPage(1);
+        void fetchNetValueList(product.id);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [startDate, endDate, dateKeyword]);
 
     const handlePageChange = (page: number) => {
         const totalPage = Math.ceil(totalCount / pageSize);
@@ -287,9 +299,9 @@ export default function ProductNetValueManager({ initialProductId }: ProductNetV
                 </div>
             )}
 
-            <div className="flex justify-between items-center mb-6">
+            <div className="flex justify-between items-center mb-4">
                 <h2 className="text-xl font-semibold text-gray-800">
-                    {product.product_name} - 净值明细（共{totalCount}条）
+                    {product.product_name} - 净值明细（共{totalCount}条{(startDate || endDate || dateKeyword.trim()) && ' · 已筛选'}）
                 </h2>
                 {hasWritePermission && (
                     <button
@@ -298,6 +310,41 @@ export default function ProductNetValueManager({ initialProductId }: ProductNetV
                         className="bg-green-600 text-white px-4 py-2 rounded-md text-sm hover:bg-green-700 transition-colors"
                     >
                         新增净值
+                    </button>
+                )}
+            </div>
+
+            {/* 日期筛选条 */}
+            <div className="flex items-center flex-wrap gap-2 bg-gray-50 border border-gray-200 rounded px-3 py-2 mb-4 text-sm">
+                <span className="text-xs text-gray-500">按日期</span>
+                <input
+                    type="date"
+                    value={startDate}
+                    onChange={e => setStartDate(e.target.value)}
+                    className="px-2 py-1 border border-gray-300 rounded text-xs"
+                />
+                <span className="text-gray-400">~</span>
+                <input
+                    type="date"
+                    value={endDate}
+                    onChange={e => setEndDate(e.target.value)}
+                    className="px-2 py-1 border border-gray-300 rounded text-xs"
+                />
+                <span className="text-xs text-gray-400 mx-1">或关键字</span>
+                <input
+                    type="text"
+                    value={dateKeyword}
+                    onChange={e => setDateKeyword(e.target.value)}
+                    placeholder="如 2024、2024-05、-13"
+                    className="px-2 py-1 border border-gray-300 rounded text-xs w-44"
+                />
+                {(startDate || endDate || dateKeyword.trim()) && (
+                    <button
+                        type="button"
+                        onClick={() => { setStartDate(''); setEndDate(''); setDateKeyword(''); }}
+                        className="px-2 py-1 text-xs text-gray-600 hover:bg-gray-200 rounded"
+                    >
+                        清空筛选
                     </button>
                 )}
             </div>
@@ -337,7 +384,9 @@ export default function ProductNetValueManager({ initialProductId }: ProductNetV
                         ))
                     ) : (
                         // 🔥 修复：正确列数
-                        <tr><td colSpan={6} className="px-6 py-8 text-center text-sm text-gray-500">暂无净值数据</td></tr>
+                        <tr><td colSpan={6} className="px-6 py-8 text-center text-sm text-gray-500">
+                            {(startDate || endDate || dateKeyword.trim()) ? '当前筛选条件下没有匹配记录' : '暂无净值数据'}
+                        </td></tr>
                     )}
                     </tbody>
                 </table>
