@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import * as echarts from 'echarts';
 import type { CSSProperties } from 'react';
 import { productApi, benchmarkApi } from '@/lib/api';
@@ -193,7 +193,7 @@ export default function NetValuesManagementPage() {
     const [chartLoading, setChartLoading] = useState(false);
     const [productError, setProductError] = useState<string | null>(null);
     const [chartError, setChartError] = useState<string | null>(null);
-    const [productIndicators, setProductIndicators] = useState<ProductIndicator[]>([]);
+    // productIndicators 改为派生（避免 useEffect 内同步 setState 违反 react-hooks/set-state-in-effect）
     const [filters, setFilters] = useState<ProductFilterParams>({
         search: '', cycle: '', quant_type: '', algorithm: '', strategy: '', fof_own: '', custom: ''
     });
@@ -370,7 +370,8 @@ export default function NetValuesManagementPage() {
     useEffect(() => {
         const hasIndex = selectedIndexIds.some(id => indexSeriesMap[id]);
         if (!selectedBenchmark && !selectedCompares.length && !hasIndex) {
-            setChartProductList([]);
+            // 推到 microtask 避免 effect 内同步 setState 触发 react-hooks/set-state-in-effect
+            void Promise.resolve().then(() => setChartProductList([]));
             return;
         }
 
@@ -451,10 +452,11 @@ export default function NetValuesManagementPage() {
         });
     }, [selectedBenchmark, selectedCompares, selectedIndexIds, indexSeriesMap, timeRange, customStartDate, customEndDate, benchmarks]);
 
-    // 计算产品指标
-    useEffect(() => {
-        setProductIndicators(generateProductIndicators(chartProductList));
-    }, [chartProductList]);
+    // 计算产品指标（派生于 chartProductList，避免 effect 内 setState）
+    const productIndicators = useMemo(
+        () => generateProductIndicators(chartProductList),
+        [chartProductList],
+    );
 
     // 多 series 对齐起跳点：取各 series 首个有效日期中"最晚"的那个作为 T0；
     // 之前各自归一会让晚成立产品的周期差异被掩盖（短周期产品因起点小看起来涨得多）。

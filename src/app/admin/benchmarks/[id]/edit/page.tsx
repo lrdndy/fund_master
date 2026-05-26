@@ -13,16 +13,18 @@ export default function EditBenchmarkPage() {
     const [data, setData] = useState<BenchmarkIndex | null>(null);
     const [error, setError] = useState<string | null>(null);
 
+    // 'id 无效' 用派生表达，避免 useEffect 内同步 setError 触发
+    // react-hooks/set-state-in-effect；远程加载失败仍用 state 表达。
+    const idInvalid = !id || Number.isNaN(id);
+    const displayError = idInvalid ? '无效的基准 ID' : error;
+
     useEffect(() => {
-        if (!id || Number.isNaN(id)) {
-            setError('无效的基准 ID');
-            return;
-        }
+        if (idInvalid) return;
         benchmarkApi.getBenchmark(id).then(setData).catch(e => {
             console.error(e);
             setError('基准加载失败');
         });
-    }, [id]);
+    }, [id, idInvalid]);
 
     return (
         <div className="p-6 space-y-4">
@@ -32,7 +34,7 @@ export default function EditBenchmarkPage() {
                 <span className="text-gray-700">编辑基准</span>
             </div>
             <h2 className="text-xl font-semibold text-gray-800">编辑基准指数</h2>
-            {error && <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded p-3">{error}</div>}
+            {displayError && <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded p-3">{displayError}</div>}
             {!data ? (
                 !error && <div className="text-gray-500 text-sm">加载中...</div>
             ) : (
