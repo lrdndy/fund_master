@@ -33,6 +33,10 @@ export default function BenchmarkDetailPage() {
     // 表格分页（前端切片）
     const [page, setPage] = useState(1);
     const [pageSize, setPageSize] = useState(20);
+    // 净值明细的日期筛选（YYYY-MM-DD，前缀匹配，便于按年/年月模糊查）
+    const [filterStart, setFilterStart] = useState('');
+    const [filterEnd, setFilterEnd] = useState('');
+    const [filterKeyword, setFilterKeyword] = useState('');
 
     // 补录/编辑弹窗
     const [editing, setEditing] = useState<{ date: string; close: string; isNew: boolean } | null>(null);
@@ -121,15 +125,34 @@ export default function BenchmarkDetailPage() {
         return () => window.removeEventListener('resize', resize);
     }, [netValues]);
 
-    // 分页切片
+    // 按日期范围 + 关键字过滤，再按日期降序，最后切片分页
+    const filteredRows = useMemo(() => {
+        const kw = filterKeyword.trim();
+        return netValues.filter(nv => {
+            if (filterStart && nv.net_value_date < filterStart) return false;
+            if (filterEnd && nv.net_value_date > filterEnd) return false;
+            if (kw && !nv.net_value_date.includes(kw)) return false;
+            return true;
+        });
+    }, [netValues, filterStart, filterEnd, filterKeyword]);
+
     const pagedRows = useMemo(() => {
-        // 按日期降序展示（最新在上）
-        const desc = [...netValues].sort((a, b) => b.net_value_date.localeCompare(a.net_value_date));
+        const desc = [...filteredRows].sort((a, b) => b.net_value_date.localeCompare(a.net_value_date));
         const start = (page - 1) * pageSize;
         return desc.slice(start, start + pageSize);
-    }, [netValues, page, pageSize]);
+    }, [filteredRows, page, pageSize]);
 
-    const totalPages = Math.max(1, Math.ceil(netValues.length / pageSize));
+    const totalPages = Math.max(1, Math.ceil(filteredRows.length / pageSize));
+
+    // 筛选条件变化时回到第 1 页
+    useEffect(() => { setPage(1); }, [filterStart, filterEnd, filterKeyword]);
+
+    const clearFilters = () => {
+        setFilterStart('');
+        setFilterEnd('');
+        setFilterKeyword('');
+    };
+    const hasFilter = !!(filterStart || filterEnd || filterKeyword.trim());
 
     // 补录/编辑提交
     const handleSave = async () => {
@@ -320,9 +343,45 @@ export default function BenchmarkDetailPage() {
 
             {/* 净值明细表 */}
             <div className="bg-white border border-gray-200 rounded p-4 space-y-3">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between flex-wrap gap-2">
                     <h3 className="text-base font-semibold text-gray-800">净值明细</h3>
-                    <div className="text-sm text-gray-500">共 {netValues.length} 条</div>
+                    <div className="text-sm text-gray-500">
+                        {hasFilter ? <>筛选后 <span className="font-medium text-gray-700">{filteredRows.length}</span> / 共 {netValues.length} 条</> : <>共 {netValues.length} 条</>}
+                    </div>
+                </div>
+
+                {/* 日期筛选条 */}
+                <div className="flex items-center flex-wrap gap-2 bg-gray-50 border border-gray-200 rounded p-2 text-sm">
+                    <span className="text-xs text-gray-500">按日期</span>
+                    <input
+                        type="date"
+                        value={filterStart}
+                        onChange={e => setFilterStart(e.target.value)}
+                        className="px-2 py-1 border border-gray-300 rounded text-xs"
+                    />
+                    <span className="text-gray-400">~</span>
+                    <input
+                        type="date"
+                        value={filterEnd}
+                        onChange={e => setFilterEnd(e.target.value)}
+                        className="px-2 py-1 border border-gray-300 rounded text-xs"
+                    />
+                    <span className="text-xs text-gray-400 mx-1">或关键字</span>
+                    <input
+                        type="text"
+                        value={filterKeyword}
+                        onChange={e => setFilterKeyword(e.target.value)}
+                        placeholder="如 2024、2024-05、05-13"
+                        className="px-2 py-1 border border-gray-300 rounded text-xs w-44"
+                    />
+                    {hasFilter && (
+                        <button
+                            onClick={clearFilters}
+                            className="px-2 py-1 text-xs text-gray-600 hover:bg-gray-200 rounded"
+                        >
+                            清空
+                        </button>
+                    )}
                 </div>
                 <table className="w-full text-sm">
                     <thead className="bg-gray-50 text-xs text-gray-600 uppercase">
@@ -355,13 +414,15 @@ export default function BenchmarkDetailPage() {
                         ))}
                         {pagedRows.length === 0 && (
                             <tr>
-                                <td colSpan={3} className="px-3 py-8 text-center text-gray-500">暂无数据</td>
+                                <td colSpan={3} className="px-3 py-8 text-center text-gray-500">
+                                    {hasFilter ? '当前筛选条件下没有匹配记录' : '暂无数据'}
+                                </td>
                             </tr>
                         )}
                     </tbody>
                 </table>
 
-                {netValues.length > 0 && (
+                {filteredRows.length > 0 && (
                     <div className="flex items-center justify-between text-sm text-gray-600 pt-2 border-t border-gray-100">
                         <div className="flex items-center gap-2">
                             <span>每页</span>
