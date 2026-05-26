@@ -27,7 +27,7 @@ export default function BenchmarkDetailPage() {
     const [info, setInfo] = useState<BenchmarkIndex | null>(null);
     const [netValues, setNetValues] = useState<BenchmarkNetValuePoint[]>([]);
     const [missing, setMissing] = useState<BenchmarkMissingDatesResponse | null>(null);
-    const [loading, setLoading] = useState(false);
+    const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
     // 表格分页（前端切片）
@@ -89,8 +89,9 @@ export default function BenchmarkDetailPage() {
     }, [id, missingStart, missingEnd]);
 
     useEffect(() => {
-        setLoading(true);
-        Promise.all([loadInfo(), loadNetValues(), loadMissing()]).finally(() => setLoading(false));
+        // loading 默认 true，仅在 promise chain 完成的 microtask 里 setLoading(false)，
+        // 避免在 effect 内同步 setState 触发 react-hooks/set-state-in-effect
+        void Promise.all([loadInfo(), loadNetValues(), loadMissing()]).finally(() => setLoading(false));
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [id]);
 
@@ -101,7 +102,7 @@ export default function BenchmarkDetailPage() {
         const data = netValues.map(nv => [nv.net_value_date, Number(nv.close_price)]);
         chartInst.current.setOption({
             title: { text: '收盘点位走势', left: 'center', textStyle: { fontSize: 14 } },
-            tooltip: { trigger: 'axis', valueFormatter: (v: unknown) => Number(v).toFixed(4) },
+            tooltip: { trigger: 'axis', valueFormatter: (v: unknown) => Number(v).toFixed(4) } as never,
             grid: { left: '8%', right: '5%', bottom: '15%', top: '15%' },
             xAxis: { type: 'time' },
             yAxis: { type: 'value', scale: true, axisLabel: { formatter: (v: number) => v.toFixed(2) } },
@@ -144,13 +145,13 @@ export default function BenchmarkDetailPage() {
 
     const totalPages = Math.max(1, Math.ceil(filteredRows.length / pageSize));
 
-    // 筛选条件变化时回到第 1 页
-    useEffect(() => { setPage(1); }, [filterStart, filterEnd, filterKeyword]);
+    // 筛选条件回第 1 页的逻辑放在 onChange 里，避免 effect 内 setState 触发级联渲染
 
     const clearFilters = () => {
         setFilterStart('');
         setFilterEnd('');
         setFilterKeyword('');
+        setPage(1);
     };
     const hasFilter = !!(filterStart || filterEnd || filterKeyword.trim());
 
@@ -262,7 +263,7 @@ export default function BenchmarkDetailPage() {
             <div className="bg-white border border-gray-200 rounded p-4">
                 <div ref={chartRef} style={{ width: '100%', height: 380 }} />
                 {loading && <div className="text-center text-gray-400 text-sm">加载中...</div>}
-                {!loading && netValues.length === 0 && <div className="text-center text-gray-500 text-sm py-8">暂无净值数据，可点右上"新增净值"或在列表页用 CSV 导入</div>}
+                {!loading && netValues.length === 0 && <div className="text-center text-gray-500 text-sm py-8">暂无净值数据，可点右上「新增净值」或在列表页用 CSV 导入</div>}
             </div>
 
             {/* 缺失工作日 */}
@@ -300,7 +301,7 @@ export default function BenchmarkDetailPage() {
                 {!missing ? (
                     <div className="text-sm text-gray-500">加载中...</div>
                 ) : !missing.start ? (
-                    <div className="text-sm text-gray-500">尚未导入任何数据，无法计算区间。请先在列表页或上方"新增净值"补一条。</div>
+                    <div className="text-sm text-gray-500">尚未导入任何数据，无法计算区间。请先在列表页或上方「新增净值」补一条。</div>
                 ) : missing.missing_dates.length === 0 ? (
                     <div className="text-sm text-green-700 bg-green-50 border border-green-200 rounded p-2">
                         ✓ 当前基准在 {missing.start} ~ {missing.end} 内所有工作日均有数据
@@ -356,21 +357,21 @@ export default function BenchmarkDetailPage() {
                     <input
                         type="date"
                         value={filterStart}
-                        onChange={e => setFilterStart(e.target.value)}
+                        onChange={e => { setFilterStart(e.target.value); setPage(1); }}
                         className="px-2 py-1 border border-gray-300 rounded text-xs"
                     />
                     <span className="text-gray-400">~</span>
                     <input
                         type="date"
                         value={filterEnd}
-                        onChange={e => setFilterEnd(e.target.value)}
+                        onChange={e => { setFilterEnd(e.target.value); setPage(1); }}
                         className="px-2 py-1 border border-gray-300 rounded text-xs"
                     />
                     <span className="text-xs text-gray-400 mx-1">或关键字</span>
                     <input
                         type="text"
                         value={filterKeyword}
-                        onChange={e => setFilterKeyword(e.target.value)}
+                        onChange={e => { setFilterKeyword(e.target.value); setPage(1); }}
                         placeholder="如 2024、2024-05、05-13"
                         className="px-2 py-1 border border-gray-300 rounded text-xs w-44"
                     />

@@ -98,10 +98,9 @@ export default function ProductNetValueManager({ initialProductId }: ProductNetV
         }
     };
 
-    // 筛选条件变化时回第 1 页并重新拉数据
+    // 筛选条件变化时重新拉数据（重置到第 1 页的逻辑放在 onChange 里，避免 effect 内 setState）
     useEffect(() => {
         if (!product) return;
-        setCurrentPage(1);
         void fetchNetValueList(product.id);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [startDate, endDate, dateKeyword]);
@@ -320,28 +319,28 @@ export default function ProductNetValueManager({ initialProductId }: ProductNetV
                 <input
                     type="date"
                     value={startDate}
-                    onChange={e => setStartDate(e.target.value)}
+                    onChange={e => { setStartDate(e.target.value); setCurrentPage(1); }}
                     className="px-2 py-1 border border-gray-300 rounded text-xs"
                 />
                 <span className="text-gray-400">~</span>
                 <input
                     type="date"
                     value={endDate}
-                    onChange={e => setEndDate(e.target.value)}
+                    onChange={e => { setEndDate(e.target.value); setCurrentPage(1); }}
                     className="px-2 py-1 border border-gray-300 rounded text-xs"
                 />
                 <span className="text-xs text-gray-400 mx-1">或关键字</span>
                 <input
                     type="text"
                     value={dateKeyword}
-                    onChange={e => setDateKeyword(e.target.value)}
+                    onChange={e => { setDateKeyword(e.target.value); setCurrentPage(1); }}
                     placeholder="如 2024、2024-05、-13"
                     className="px-2 py-1 border border-gray-300 rounded text-xs w-44"
                 />
                 {(startDate || endDate || dateKeyword.trim()) && (
                     <button
                         type="button"
-                        onClick={() => { setStartDate(''); setEndDate(''); setDateKeyword(''); }}
+                        onClick={() => { setStartDate(''); setEndDate(''); setDateKeyword(''); setCurrentPage(1); }}
                         className="px-2 py-1 text-xs text-gray-600 hover:bg-gray-200 rounded"
                     >
                         清空筛选
