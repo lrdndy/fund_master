@@ -1,8 +1,18 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { Product, ProductCorrelation, ProductFilterParams, ApiResponse } from '@/lib/types';
-import { productApi, correlationApi } from '@/lib/api';
+import { Product, ProductCorrelation, ProductFilterParams, ApiResponse, BenchmarkIndex, BenchmarkNetValuePoint, ProductNetValue } from '@/lib/types';
+import { productApi, correlationApi, benchmarkApi } from '@/lib/api';
 import useProductTags from '@/hooks/useProductTags';
+import { calculateCorrelation } from '@/lib/metrics';
+
+type EntityKey = string; // 'p:<id>' / 'i:<id>'
+const pKey = (id: number): EntityKey => `p:${id}`;
+const iKey = (id: number): EntityKey => `i:${id}`;
+const parseKey = (k: EntityKey): { kind: 'p' | 'i'; id: number } => {
+    const [kind, idStr] = k.split(':');
+    return { kind: kind as 'p' | 'i', id: Number(idStr) };
+};
+interface NetPoint { date: string; value: number }
 
 // 封装安全的数字格式化函数
 const formatCorrelationValue = (value: number | null): string => {
@@ -13,19 +23,26 @@ const formatCorrelationValue = (value: number | null): string => {
 };
 
 export default function CorrelationBoard() {
-    // 本地存储常量（持久化已选产品）
+    // 本地存储常量（持久化已选产品 + 基准）
     const STORAGE_KEY = 'correlation_selected_product_ids';
+    const INDEX_STORAGE_KEY = 'correlation_selected_index_ids';
 
     // 核心状态
     const [allProducts, setAllProducts] = useState<Product[]>([]);
     const [filteredProducts, setFilteredProducts] = useState<Product[]>([]);
-    // 从本地存储初始化已选产品
     const [selectedProductIds, setSelectedProductIds] = useState<number[]>([]);
     const [correlationData, setCorrelationData] = useState<ProductCorrelation[]>([]);
     const [loading, setLoading] = useState<boolean>(true);
     const [queryLoading, setQueryLoading] = useState<boolean>(false);
     const [productError, setProductError] = useState<string | null>(null);
     const [correlationError, setCorrelationError] = useState<string | null>(null);
+
+    // 基准指数相关 state
+    const [benchmarks, setBenchmarks] = useState<BenchmarkIndex[]>([]);
+    const [selectedIndexIds, setSelectedIndexIds] = useState<number[]>([]);
+    // 涉及基准的相关性走前端实时算（后端 ProductCorrelation 只覆盖产品 vs 产品）；
+    // key 为两端实体的 'p:id' / 'i:id' 拼成的排序后字符串，统一查找
+    const [crossCorr, setCrossCorr] = useState<Record<string, { corr: number; start: string; end: string; count: number }>>({});
 
     // 🔥 修复：新增 custom 和 fof_own 筛选字段
     const [filters, setFilters] = useState<ProductFilterParams>({
@@ -59,12 +76,27 @@ export default function CorrelationBoard() {
                 if (savedIds) {
                     try {
                         const parsedIds = JSON.parse(savedIds) as number[];
-                        // 校验：只保留存在的产品ID
                         const validIds = parsedIds.filter(id => products.some(p => p.id === id));
                         setSelectedProductIds(validIds);
-                    } catch (e) {
+                    } catch {
                         setSelectedProductIds([]);
                     }
+                }
+
+                // 3. 加载基准列表 + 恢复已选基准
+                try {
+                    const bRes = await benchmarkApi.getBenchmarks();
+                    const blist = bRes.results ?? [];
+                    setBenchmarks(blist);
+                    const savedIdx = localStorage.getItem(INDEX_STORAGE_KEY);
+                    if (savedIdx) {
+                        try {
+                            const ids = JSON.parse(savedIdx) as number[];
+                            setSelectedIndexIds(ids.filter(id => blist.some(b => b.id === id)));
+                        } catch {}
+                    }
+                } catch (e) {
+                    console.error('基准列表加载失败', e);
                 }
 
                 setProductError(null);
@@ -124,6 +156,15 @@ export default function CorrelationBoard() {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(selectedProductIds));
     }, [selectedProductIds]);
 
+    useEffect(() => {
+        localStorage.setItem(INDEX_STORAGE_KEY, JSON.stringify(selectedIndexIds));
+    }, [selectedIndexIds]);
+
+    const toggleIndex = (id: number) => {
+        setSelectedIndexIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+    };
+    const clearIndexes = () => setSelectedIndexIds([]);
+
     // 2. 筛选条件变更处理
     const handleFilterChange = (name: keyof ProductFilterParams, value: string) => {
         setFilters(prev => ({ ...prev, [name]: value }));
@@ -178,51 +219,123 @@ export default function CorrelationBoard() {
     };
 
     // 5. 查询相关性数据
+    // 产品-产品走后端预计算（correlationApi.getCorrelationsByProducts）；
+    // 涉及基准的对（基准-基准、基准-产品）前端实时算 Pearson —— 因为后端 ProductCorrelation
+    // 表只覆盖产品对；扩出 BenchmarkCorrelation 表的代价较高，选前端算保持简洁。
     const handleQueryCorrelation = async () => {
-        if (selectedProductIds.length < 2) {
-            setCorrelationError("请至少选择2个产品");
+        const total = selectedProductIds.length + selectedIndexIds.length;
+        if (total < 2) {
+            setCorrelationError('请至少选择 2 个对象（产品 + 基准合计）');
             return;
         }
 
         setQueryLoading(true);
         setCorrelationError(null);
         try {
-            const res = await correlationApi.getCorrelationsByProducts(selectedProductIds);
-            console.log("后端返回的原始数据：", res);
-            console.log("相关性数据列表：", res.results);
-            res.results.forEach(item => {
-                console.log(`product1: ${item.product1}, product2: ${item.product2}, 系数: ${item.correlation_coefficient}`);
+            // (1) 后端拿产品-产品相关性（>=2 个产品才有意义）
+            const productCorrPromise: Promise<{ results: ProductCorrelation[] }> = selectedProductIds.length >= 2
+                ? correlationApi.getCorrelationsByProducts(selectedProductIds)
+                : Promise.resolve({ results: [] });
+
+            // (2) 并行拉所有 selected 实体的净值
+            const productNvPromises: Array<Promise<[number, NetPoint[]]>> = selectedProductIds.map(async pid => {
+                const r = await productApi.getNetValuesByProductId(pid);
+                const pts: NetPoint[] = (r.results ?? [])
+                    .filter((v: ProductNetValue) => v.net_value_date && v.cumulative_unit_net_value != null)
+                    .map((v: ProductNetValue) => ({ date: v.net_value_date!.trim(), value: Number(v.cumulative_unit_net_value) }))
+                    .filter(p => Number.isFinite(p.value) && p.value > 0);
+                return [pid, pts] as [number, NetPoint[]];
             });
-            setCorrelationData(res.results);
-            if (res.results.length === 0) {
-                setCorrelationError("未查询到相关性数据");
+            const indexNvPromises: Array<Promise<[number, NetPoint[]]>> = selectedIndexIds.map(async iid => {
+                const r = await benchmarkApi.getBenchmarkNetValues(iid);
+                const pts: NetPoint[] = (r.results ?? [])
+                    .filter((v: BenchmarkNetValuePoint) => v.net_value_date && v.close_price != null)
+                    .map((v: BenchmarkNetValuePoint) => ({ date: v.net_value_date.trim(), value: Number(v.close_price) }))
+                    .filter(p => Number.isFinite(p.value) && p.value > 0);
+                return [iid, pts] as [number, NetPoint[]];
+            });
+
+            const [productCorrRes, productNvs, indexNvs] = await Promise.all([
+                productCorrPromise,
+                Promise.all(productNvPromises),
+                Promise.all(indexNvPromises),
+            ]);
+
+            setCorrelationData(productCorrRes.results ?? []);
+
+            // (3) 前端实时算"涉及基准"的对
+            const productNvMap = new Map(productNvs);
+            const indexNvMap = new Map(indexNvs);
+            const cross: typeof crossCorr = {};
+            const getNv = (k: EntityKey) => {
+                const { kind, id } = parseKey(k);
+                return kind === 'p' ? productNvMap.get(id) : indexNvMap.get(id);
+            };
+            const allKeys: EntityKey[] = [
+                ...selectedProductIds.map(pKey),
+                ...selectedIndexIds.map(iKey),
+            ];
+            for (let i = 0; i < allKeys.length; i++) {
+                for (let j = i + 1; j < allKeys.length; j++) {
+                    const a = allKeys[i], b = allKeys[j];
+                    // 纯产品对走后端，跳过
+                    if (a.startsWith('p:') && b.startsWith('p:')) continue;
+                    const aNv = getNv(a), bNv = getNv(b);
+                    if (!aNv || !bNv) continue;
+                    const r = calculateCorrelation(aNv, bNv);
+                    cross[`${a}|${b}`] = r;
+                }
             }
+            setCrossCorr(cross);
+
+            const hasAnyCorr = (productCorrRes.results?.length ?? 0) > 0 || Object.keys(cross).length > 0;
+            if (!hasAnyCorr) setCorrelationError('未查询到任何相关性数据');
         } catch (err: unknown) {
             const message = err instanceof Error ? err.message : '未知错误';
             setCorrelationError(`查询相关性失败：${message}`);
             setCorrelationData([]);
+            setCrossCorr({});
         } finally {
             setQueryLoading(false);
         }
     };
 
-    // 6. 辅助函数：获取产品名称
+    // 6. 实体名称（产品 / 基准统一处理）
     const getProductName = (productId: number): string => {
         const product = allProducts.find(p => p.id === productId);
         return product ? `${product.product_name} (ID: ${product.id})` : `产品${productId} (ID: ${productId})`;
     };
-
-    // 7. 辅助函数：获取相关系数
-    const getCorrelationValue = (productAId: number, productBId: number): number | null => {
-        let item = correlationData.find(c => c.product1 === productAId && c.product2 === productBId);
-        if (!item) {
-            item = correlationData.find(c => c.product1 === productBId && c.product2 === productAId);
-        }
-        if (!item || item.correlation_coefficient === null || isNaN(item.correlation_coefficient)) {
-            return null;
-        }
-        return item.correlation_coefficient;
+    const getIndexName = (indexId: number): string => {
+        const b = benchmarks.find(x => x.id === indexId);
+        return b ? `[指数] ${b.index_short_name || b.index_name}` : `[指数] #${indexId}`;
     };
+    const getEntityName = (k: EntityKey): string => {
+        const { kind, id } = parseKey(k);
+        return kind === 'p' ? getProductName(id) : getIndexName(id);
+    };
+
+    // 7. 取相关系数：产品-产品查 correlationData，否则查 crossCorr
+    const getEntityCorr = (a: EntityKey, b: EntityKey): number | null => {
+        if (a === b) return 1;
+        const aIsP = a.startsWith('p:');
+        const bIsP = b.startsWith('p:');
+        if (aIsP && bIsP) {
+            const aid = parseKey(a).id, bid = parseKey(b).id;
+            let item = correlationData.find(c => c.product1 === aid && c.product2 === bid);
+            if (!item) item = correlationData.find(c => c.product1 === bid && c.product2 === aid);
+            if (!item || item.correlation_coefficient === null || isNaN(item.correlation_coefficient)) return null;
+            return item.correlation_coefficient;
+        }
+        const k1 = `${a}|${b}`, k2 = `${b}|${a}`;
+        const r = crossCorr[k1] ?? crossCorr[k2];
+        return r ? r.corr : null;
+    };
+
+    // 全部已选实体 keys（用于矩阵的行/列）
+    const allEntityKeys: EntityKey[] = [
+        ...selectedProductIds.map(pKey),
+        ...selectedIndexIds.map(iKey),
+    ];
 
     return (
         <div className="container mx-auto p-4 sm:p-6 bg-slate-50 min-h-screen">
@@ -531,10 +644,39 @@ export default function CorrelationBoard() {
                         )}
                     </div>
 
+                    {/* 基准指数多选 */}
+                    <div className="mt-5">
+                        <div className="flex items-center justify-between mb-2">
+                            <div className="text-sm font-medium text-slate-700">对比基准指数（{selectedIndexIds.length} 个）</div>
+                            {selectedIndexIds.length > 0 && (
+                                <button onClick={clearIndexes} className="text-xs text-slate-500 hover:text-red-600 underline">清空</button>
+                            )}
+                        </div>
+                        {benchmarks.length === 0 ? (
+                            <div className="text-xs text-slate-400">暂无可选基准</div>
+                        ) : (
+                            <div className="flex flex-wrap gap-2">
+                                {benchmarks.map(b => {
+                                    const checked = selectedIndexIds.includes(b.id);
+                                    return (
+                                        <label
+                                            key={b.id}
+                                            className={`px-2.5 py-1 rounded-full text-xs cursor-pointer border ${checked ? 'bg-blue-50 text-blue-700 border-blue-400' : 'bg-white text-slate-600 border-slate-300 hover:border-slate-400'}`}
+                                        >
+                                            <input type="checkbox" className="hidden" checked={checked} onChange={() => toggleIndex(b.id)} />
+                                            {b.index_short_name || b.index_name}
+                                        </label>
+                                    );
+                                })}
+                            </div>
+                        )}
+                        <p className="text-xs text-slate-400 mt-2">基准与产品 / 基准与基准的相关性在前端实时计算，按日期对齐取交集</p>
+                    </div>
+
                     {/* 查询按钮 */}
                     <button
                         onClick={handleQueryCorrelation}
-                        disabled={queryLoading || selectedProductIds.length < 2}
+                        disabled={queryLoading || (selectedProductIds.length + selectedIndexIds.length) < 2}
                         className="w-full mt-6 px-5 py-3 bg-blue-600 text-white rounded-lg disabled:bg-slate-300 hover:bg-blue-700 active:bg-blue-800 transition-all duration-200 shadow-md hover:shadow-lg flex items-center justify-center gap-2 font-medium"
                     >
                         {queryLoading ? (
@@ -564,14 +706,15 @@ export default function CorrelationBoard() {
                 </div>
             </div>
 
-            {/* 3. 相关性矩阵 */}
-            {selectedProductIds.length >= 2 && (
+            {/* 3. 相关性矩阵（产品 + 基准混合） */}
+            {allEntityKeys.length >= 2 && (
                 <div className="border border-slate-200 rounded-xl bg-white p-5 shadow-md hover:shadow-lg transition-shadow duration-300 overflow-x-auto">
                     <h2 className="font-semibold mb-5 text-slate-800 flex items-center gap-2 text-lg">
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V9a2 0 012-2h2a2 2 0 012 2v10" />
                         </svg>
-                        产品相关性矩阵
+                        相关性矩阵
+                        <span className="text-xs text-slate-400 font-normal ml-2">{selectedProductIds.length} 产品 + {selectedIndexIds.length} 基准</span>
                     </h2>
 
                     {queryLoading ? (
@@ -579,46 +722,34 @@ export default function CorrelationBoard() {
                             <div className="w-12 h-12 border-4 border-slate-200 border-t-blue-600 rounded-full animate-spin"></div>
                             <span>正在计算相关性...</span>
                         </div>
-                    ) : correlationData.length > 0 ? (
+                    ) : (correlationData.length > 0 || Object.keys(crossCorr).length > 0) ? (
                         <table className="min-w-full border-collapse">
                             <thead>
                             <tr className="bg-white">
-                                <th className="border border-gray-300 p-2 text-left">产品</th>
-                                {selectedProductIds.map(productId => (
-                                    <th key={productId} className="border border-gray-300 p-2">
-                                        {getProductName(productId)}
-                                    </th>
+                                <th className="border border-gray-300 p-2 text-left">名称</th>
+                                {allEntityKeys.map(k => (
+                                    <th key={k} className="border border-gray-300 p-2 text-xs">{getEntityName(k)}</th>
                                 ))}
                             </tr>
                             </thead>
                             <tbody>
-                            {selectedProductIds.map((rowProductId, rowIndex) => (
-                                <tr key={rowProductId} className="bg-white">
-                                    <td className="border border-gray-300 p-2 font-medium">
-                                        {getProductName(rowProductId)}
-                                    </td>
-                                    {selectedProductIds.map((colProductId, colIndex) => {
+                            {allEntityKeys.map((rowKey, rowIndex) => (
+                                <tr key={rowKey} className="bg-white">
+                                    <td className="border border-gray-300 p-2 font-medium text-xs">{getEntityName(rowKey)}</td>
+                                    {allEntityKeys.map((colKey, colIndex) => {
                                         if (rowIndex > colIndex) {
-                                            return <td key={colProductId} className="border border-gray-300 p-2 bg-white"></td>;
+                                            return <td key={colKey} className="border border-gray-300 p-2 bg-white"></td>;
                                         }
-                                        const value = getCorrelationValue(rowProductId, colProductId);
+                                        const value = getEntityCorr(rowKey, colKey);
                                         const bgColor = value === null
                                             ? 'bg-gray-100'
-                                            : value >= 0.8
-                                                ? 'bg-red-100'
-                                                : value >= 0.5
-                                                    ? 'bg-orange-100'
-                                                    : value >= 0
-                                                        ? 'bg-yellow-50'
-                                                        : value >= -0.5
-                                                            ? 'bg-blue-50'
-                                                            : 'bg-blue-100';
-
+                                            : value >= 0.8 ? 'bg-red-100'
+                                            : value >= 0.5 ? 'bg-orange-100'
+                                            : value >= 0   ? 'bg-yellow-50'
+                                            : value >= -0.5 ? 'bg-blue-50'
+                                            : 'bg-blue-100';
                                         return (
-                                            <td
-                                                key={colProductId}
-                                                className={`border border-gray-300 p-2 text-center ${bgColor}`}
-                                            >
+                                            <td key={colKey} className={`border border-gray-300 p-2 text-center ${bgColor}`}>
                                                 {formatCorrelationValue(value)}
                                             </td>
                                         );
