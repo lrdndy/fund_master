@@ -1,9 +1,10 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Product, ProductCorrelation, ProductFilterParams, ApiResponse, BenchmarkIndex, BenchmarkNetValuePoint, ProductNetValue } from '@/lib/types';
 import { productApi, correlationApi, benchmarkApi } from '@/lib/api';
 import useProductTags from '@/hooks/useProductTags';
 import { calculateCorrelation } from '@/lib/metrics';
+import { useBasket } from '@/contexts/BasketContext';
 
 type EntityKey = string; // 'p:<id>' / 'i:<id>'
 const pKey = (id: number): EntityKey => `p:${id}`;
@@ -26,6 +27,10 @@ export default function CorrelationBoard() {
     // 本地存储常量（持久化已选产品 + 基准）
     const STORAGE_KEY = 'correlation_selected_product_ids';
     const INDEX_STORAGE_KEY = 'correlation_selected_index_ids';
+
+    // 篮子上下文：初次进入页面（localStorage 没有本页选中记录时）用篮子预填
+    const { currentBasket, loading: basketLoading } = useBasket();
+    const initedRef = useRef(false);
 
     // 核心状态
     const [allProducts, setAllProducts] = useState<Product[]>([]);
@@ -71,7 +76,7 @@ export default function CorrelationBoard() {
                 setAllProducts(products);
                 setFilteredProducts(products);
 
-                // 2. 从本地存储恢复已选产品ID
+                // 2. 从本地存储恢复已选产品ID；没有则尝试用篮子预填
                 const savedIds = localStorage.getItem(STORAGE_KEY);
                 if (savedIds) {
                     try {
@@ -81,9 +86,12 @@ export default function CorrelationBoard() {
                     } catch {
                         setSelectedProductIds([]);
                     }
+                } else if (currentBasket && currentBasket.product_id_list.length > 0) {
+                    const valid = currentBasket.product_id_list.filter(id => products.some(p => p.id === id));
+                    setSelectedProductIds(valid);
                 }
 
-                // 3. 加载基准列表 + 恢复已选基准
+                // 3. 加载基准列表 + 恢复已选基准（没有则用篮子预填）
                 try {
                     const bRes = await benchmarkApi.getBenchmarks();
                     const blist = bRes.results ?? [];
@@ -94,6 +102,8 @@ export default function CorrelationBoard() {
                             const ids = JSON.parse(savedIdx) as number[];
                             setSelectedIndexIds(ids.filter(id => blist.some(b => b.id === id)));
                         } catch {}
+                    } else if (currentBasket && currentBasket.index_id_list.length > 0) {
+                        setSelectedIndexIds(currentBasket.index_id_list.filter(id => blist.some(b => b.id === id)));
                     }
                 } catch (e) {
                     console.error('基准列表加载失败', e);
@@ -110,8 +120,13 @@ export default function CorrelationBoard() {
             }
         };
 
-        initPage();
-    }, []);
+        // 等 BasketProvider 完成加载后只跑一次（用 ref 防重复，避免 effect 内 setState 触发 set-state-in-effect）
+        if (!initedRef.current && !basketLoading) {
+            initedRef.current = true;
+            void initPage();
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [basketLoading]);
 
     // ==============================================
     // 🔥 2. 筛选/搜索：仅更新产品列表，绝不修改已选产品（核心修复）

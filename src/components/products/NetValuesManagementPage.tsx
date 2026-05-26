@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import * as echarts from 'echarts';
+import { useBasket } from '@/contexts/BasketContext';
 import type { CSSProperties } from 'react';
 import { productApi, benchmarkApi } from '@/lib/api';
 import useProductTags from '@/hooks/useProductTags';
@@ -184,6 +185,9 @@ const timeBtns = [
 ];
 
 export default function NetValuesManagementPage() {
+    const { currentBasket, loading: basketLoading } = useBasket();
+    const initedRef = useRef(false);
+
     // 状态
     const [filteredProducts, setFilteredProducts] = useState<Product[]>([]);
     const [selectedBenchmark, setSelectedBenchmark] = useState<Product | null>(null);
@@ -247,7 +251,13 @@ export default function NetValuesManagementPage() {
     }, []);
 
     // 初始化产品列表（类型完全匹配，无注解）
+    // 初次进入页面预填：
+    // - localStorage 里有'本页选中记录' → 优先恢复（用户在本页主动选过的不被覆盖）
+    // - 否则若当前篮子（侧边栏选中）有内容 → 用篮子产品的第 1 个当基准、其余当对比预填
+    // - 都没有就保持空（让用户自行选）
     useEffect(() => {
+        if (initedRef.current || basketLoading) return;
+        initedRef.current = true;
         const initProducts = async () => {
             try {
                 const res = await productApi.getProducts({});
@@ -255,12 +265,20 @@ export default function NetValuesManagementPage() {
                 setFilteredProducts(prods);
                 if (!prods.length) return;
 
-                // 默认不预选基准产品；只在 localStorage 明确存了 ID 时恢复
                 const bId = localStorage.getItem(STORAGE_KEYS.BENCHMARK_ID);
                 const cIds = localStorage.getItem(STORAGE_KEYS.COMPARE_IDS);
-                const bench = bId ? prods.find(p => p.id === +bId) ?? null : null;
+                let bench: Product | null = bId ? prods.find(p => p.id === +bId) ?? null : null;
                 let comps: Product[] = [];
                 if (cIds) try { comps = prods.filter(p => JSON.parse(cIds).includes(p.id)); } catch {}
+
+                // 篮子预填：仅在两个 key 都没存（即用户从未在本页主动选过）时生效
+                if (!bId && !cIds && currentBasket && currentBasket.product_id_list.length > 0) {
+                    const basketProds = prods.filter(p => currentBasket.product_id_list.includes(p.id));
+                    if (basketProds.length > 0) {
+                        bench = basketProds[0];
+                        comps = basketProds.slice(1);
+                    }
+                }
 
                 setSelectedBenchmark(bench);
                 setSelectedCompares(comps);
@@ -268,8 +286,8 @@ export default function NetValuesManagementPage() {
                 setProductError('产品加载失败');
             }
         };
-        initProducts();
-    }, []);
+        void initProducts();
+    }, [basketLoading, currentBasket]);
 
     // 产品筛选（类型完全匹配）
     useEffect(() => {
@@ -297,26 +315,31 @@ export default function NetValuesManagementPage() {
         localStorage.setItem(STORAGE_KEYS.INDEX_IDS, JSON.stringify(selectedIndexIds));
     }, [selectedBenchmark, selectedCompares, selectedIndexIds]);
 
-    // 加载基准指数列表 + 恢复上次选中
+    // 加载基准指数列表 + 恢复上次选中（无则用篮子预填）
     useEffect(() => {
         const loadBenchmarks = async () => {
             try {
                 const res = await benchmarkApi.getBenchmarks();
                 setBenchmarks(res.results ?? []);
+                const valid = (res.results ?? []).map(b => b.id);
                 const stored = localStorage.getItem(STORAGE_KEYS.INDEX_IDS);
                 if (stored) {
                     try {
                         const ids = JSON.parse(stored) as number[];
-                        const valid = (res.results ?? []).map(b => b.id);
                         setSelectedIndexIds(ids.filter(id => valid.includes(id)));
                     } catch {}
+                } else if (currentBasket && currentBasket.index_id_list.length > 0) {
+                    // 用户没在本页选过 → 用篮子的基准预填
+                    setSelectedIndexIds(currentBasket.index_id_list.filter(id => valid.includes(id)));
                 }
             } catch (err) {
                 console.error('加载基准指数失败', err);
             }
         };
-        void loadBenchmarks();
-    }, []);
+        // 等 BasketProvider 完成加载再拉，否则上面的篮子预填分支拿到的 currentBasket=null
+        if (!basketLoading) void loadBenchmarks();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [basketLoading]);
 
     // 选中指数变化时，按需异步拉对应净值（缓存命中跳过）
     useEffect(() => {

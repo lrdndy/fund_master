@@ -17,6 +17,7 @@ import {
 } from '@/lib/types';
 import { productApi, tagApi } from '@/lib/api';
 import ProductFilter from '@/components/products/ProductFilter';
+import { useBasket } from '@/contexts/BasketContext';
 import ProductList from '@/components/products/ProductList';
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50, 100];
@@ -25,7 +26,10 @@ const DEFAULT_PAGE_SIZE = 20;
 // 【合法React组件】默认导出，返回标准JSX
 export default function HomePage() {
   const router = useRouter();
+  const { currentBasket } = useBasket();
   const [products, setProducts] = useState<Product[]>([]);
+  // 是否按当前篮子过滤产品列表（默认关；用户主动开启后才过滤）
+  const [filterByBasket, setFilterByBasket] = useState(false);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -173,6 +177,26 @@ export default function HomePage() {
           </button>
         </div>
 
+        {/* 当前篮子状态条（侧边栏选了篮子时显示，可一键按篮子过滤本页表格） */}
+        {currentBasket && (
+          <div className="flex items-center justify-between bg-blue-50 border border-blue-200 rounded px-4 py-2 text-sm">
+            <div className="text-blue-800">
+              当前篮子：<span className="font-medium">{currentBasket.name}</span>
+              <span className="text-xs text-blue-600 ml-2">
+                （{currentBasket.product_id_list.length} 产品 · {currentBasket.index_id_list.length} 基准）
+              </span>
+            </div>
+            <label className="flex items-center gap-2 text-xs text-blue-700 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={filterByBasket}
+                onChange={e => setFilterByBasket(e.target.checked)}
+              />
+              只看篮子里的产品
+            </label>
+          </div>
+        )}
+
         <div className="border border-gray-200 rounded-lg p-4 bg-white shadow-sm">
           <ProductFilter tags={tags} filters={filters} onFilterChange={handleFilterChange} />
         </div>
@@ -187,7 +211,9 @@ export default function HomePage() {
           ) : (
               <>
                 <ProductList
-                    products={products}
+                    products={filterByBasket && currentBasket
+                        ? products.filter(p => currentBasket.product_id_list.includes(p.id))
+                        : products}
                     ordering={filters.ordering ?? ''}
                     onOrderingChange={(ordering) => handleFilterChange({ ordering })}
                 />
