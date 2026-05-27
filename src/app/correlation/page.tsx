@@ -29,7 +29,7 @@ export default function CorrelationBoard() {
     const INDEX_STORAGE_KEY = 'correlation_selected_index_ids';
 
     // 篮子上下文：初次进入页面（localStorage 没有本页选中记录时）用篮子预填
-    const { currentBasket, loading: basketLoading } = useBasket();
+    const { baskets, currentBasket, currentBasketId, setCurrentBasketId, loading: basketLoading } = useBasket();
     const initedRef = useRef(false);
 
     // 核心状态
@@ -179,6 +179,17 @@ export default function CorrelationBoard() {
         setSelectedIndexIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
     };
     const clearIndexes = () => setSelectedIndexIds([]);
+
+    // 应用篮子：用篮子里的产品 + 基准指数替换当前已选；
+    // 之后用户仍可在产品列表 / 基准 chip 区追加非篮子的对象
+    const applyBasket = () => {
+        if (!currentBasket) return;
+        const valid = allProducts.map(p => p.id);
+        setSelectedProductIds(currentBasket.product_id_list.filter(id => valid.includes(id)));
+        // 基准列表 selector 在矩阵区上方已加载到 benchmarks state，这里直接 set；
+        // 即便 benchmarks 尚未加载，setSelectedIndexIds 后下次加载完会自然 filter 出有效项
+        setSelectedIndexIds(currentBasket.index_id_list);
+    };
 
     // 2. 筛选条件变更处理
     const handleFilterChange = (name: keyof ProductFilterParams, value: string) => {
@@ -361,6 +372,32 @@ export default function CorrelationBoard() {
                 </svg>
                 产品相关性看板
             </h1>
+
+            {/* 应用篮子条 */}
+            <div className="mb-4 flex items-center flex-wrap gap-3 bg-white border border-slate-200 rounded-xl px-4 py-3 shadow-sm">
+                <span className="text-sm font-semibold text-slate-700">🧺 篮子</span>
+                <select
+                    value={currentBasketId ?? ''}
+                    onChange={e => setCurrentBasketId(e.target.value ? Number(e.target.value) : null)}
+                    className="px-2 py-1 border border-slate-300 rounded text-sm bg-white"
+                >
+                    <option value="">未选择</option>
+                    {baskets.map(b => (
+                        <option key={b.id} value={b.id}>
+                            {b.name}（{b.product_id_list.length} 产品 + {b.index_id_list.length} 基准）
+                        </option>
+                    ))}
+                </select>
+                <button
+                    type="button"
+                    onClick={applyBasket}
+                    disabled={!currentBasket}
+                    className={`px-3 py-1 text-sm rounded ${currentBasket ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-slate-200 text-slate-400 cursor-not-allowed'}`}
+                >
+                    应用到本页（替换已选）
+                </button>
+                <span className="text-xs text-slate-500">应用后仍可在下方产品列表 / 基准 chip 区继续追加非篮子的对象</span>
+            </div>
 
             {/* 1. 筛选区域 */}
             <div className="mb-8 p-5 border border-slate-200 rounded-xl bg-white shadow-md hover:shadow-lg transition-shadow duration-300">
