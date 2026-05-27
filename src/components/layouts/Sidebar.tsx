@@ -9,7 +9,7 @@ import type { Basket } from '@/lib/types';
 export default function Sidebar() {
     const router = useRouter();
     const pathname = usePathname();
-    const { baskets, currentBasket, currentBasketId, setCurrentBasketId, remove } = useBasket();
+    const { baskets, currentBaskets, currentBasketIds, toggleBasket, clearBasketSelection, remove } = useBasket();
     const [editing, setEditing] = useState<Basket | 'new' | null>(null);
 
     const menuItems = [
@@ -62,8 +62,10 @@ export default function Sidebar() {
                     >
                         <span className="w-5 h-5 flex items-center justify-center">🧺</span>
                         <span className="flex-1 truncate">我的篮子</span>
-                        {currentBasket ? (
-                            <span className="text-[10px] text-blue-600 truncate max-w-[80px]">{currentBasket.name}</span>
+                        {currentBaskets.length > 0 ? (
+                            <span className="text-[10px] text-blue-600 truncate max-w-[80px]">
+                                {currentBaskets.length === 1 ? currentBaskets[0].name : `已选 ${currentBaskets.length} 个`}
+                            </span>
                         ) : (
                             <span className="text-xs text-gray-300">›</span>
                         )}
@@ -73,43 +75,55 @@ export default function Sidebar() {
                     <div className="hidden group-hover:block absolute left-full top-0 pl-2 z-50">
                         <div className="w-72 bg-white border border-gray-200 rounded-lg shadow-lg p-3">
                             <div className="flex items-center justify-between mb-2">
-                                <h4 className="text-sm font-semibold text-gray-800">我的篮子</h4>
-                                <button
-                                    onClick={() => setEditing('new')}
-                                    title="新建篮子"
-                                    className="text-xs text-blue-600 hover:bg-blue-50 rounded px-2 py-0.5"
-                                >
-                                    + 新建
-                                </button>
+                                <h4 className="text-sm font-semibold text-gray-800">
+                                    我的篮子
+                                    {currentBaskets.length > 0 && <span className="ml-1 text-[10px] text-blue-600">已选 {currentBaskets.length}</span>}
+                                </h4>
+                                <div className="flex gap-1">
+                                    {currentBaskets.length > 0 && (
+                                        <button
+                                            onClick={clearBasketSelection}
+                                            title="清空选中"
+                                            className="text-xs text-gray-500 hover:bg-gray-100 rounded px-2 py-0.5"
+                                        >
+                                            清空
+                                        </button>
+                                    )}
+                                    <button
+                                        onClick={() => setEditing('new')}
+                                        title="新建篮子"
+                                        className="text-xs text-blue-600 hover:bg-blue-50 rounded px-2 py-0.5"
+                                    >
+                                        + 新建
+                                    </button>
+                                </div>
                             </div>
 
                             <div className="max-h-80 overflow-y-auto space-y-0.5">
-                                <button
-                                    onClick={() => setCurrentBasketId(null)}
-                                    className={`w-full text-left px-3 py-1.5 text-xs rounded ${
-                                        currentBasketId === null ? 'bg-gray-100 text-gray-800 font-medium' : 'text-gray-500 hover:bg-gray-50'
-                                    }`}
-                                >
-                                    （不应用篮子）
-                                </button>
                                 {baskets.length === 0 ? (
                                     <div className="text-xs text-gray-400 px-3 py-2">暂无篮子，点上方「+ 新建」</div>
                                 ) : (
                                     baskets.map(b => {
-                                        const active = b.id === currentBasketId;
+                                        const active = currentBasketIds.includes(b.id);
                                         return (
                                             <div
                                                 key={b.id}
-                                                onClick={() => setCurrentBasketId(b.id)}
-                                                className={`group/item flex items-center justify-between px-3 py-1.5 rounded cursor-pointer ${
-                                                    active ? 'bg-blue-100 text-blue-800 font-medium' : 'text-gray-700 hover:bg-gray-100'
+                                                onClick={() => toggleBasket(b.id)}
+                                                className={`group/item flex items-center gap-2 px-3 py-1.5 rounded cursor-pointer ${
+                                                    active ? 'bg-blue-50 text-blue-800' : 'text-gray-700 hover:bg-gray-100'
                                                 }`}
                                             >
+                                                <input
+                                                    type="checkbox"
+                                                    readOnly
+                                                    checked={active}
+                                                    className="pointer-events-none"
+                                                />
                                                 <div className="flex-1 min-w-0">
                                                     <div className="truncate text-sm">{b.name}</div>
                                                     <div className="text-[10px] text-gray-500">{b.product_id_list.length} 产品 · {b.index_id_list.length} 基准</div>
                                                 </div>
-                                                <div className="ml-1 flex gap-0.5 opacity-0 group-hover/item:opacity-100">
+                                                <div className="flex gap-0.5 opacity-0 group-hover/item:opacity-100">
                                                     <button
                                                         onClick={(e) => { e.stopPropagation(); setEditing(b); }}
                                                         title="编辑"
@@ -132,7 +146,7 @@ export default function Sidebar() {
                             </div>
 
                             <p className="text-[10px] text-gray-400 mt-2 pt-2 border-t border-gray-100 leading-tight">
-                                选中篮子后，净值管理 / 相关性页面会出现「应用篮子」按钮；首次进入页面也会自动用篮子预填默认对比
+                                可多选；多个篮子的产品/基准会被合并去重。其他页面有「应用篮子」按钮，首次进入也会自动预填默认对比
                             </p>
                         </div>
                     </div>

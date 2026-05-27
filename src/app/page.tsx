@@ -26,10 +26,12 @@ const DEFAULT_PAGE_SIZE = 20;
 // 【合法React组件】默认导出，返回标准JSX
 export default function HomePage() {
   const router = useRouter();
-  const { currentBasket } = useBasket();
+  const { currentBaskets, combinedProductIds } = useBasket();
   const [products, setProducts] = useState<Product[]>([]);
-  // 是否按当前篮子过滤产品列表（默认关；用户主动开启后才过滤）
+  // 是否只看篮子里的产品（filter）
   const [filterByBasket, setFilterByBasket] = useState(false);
+  // 是否把篮子里的产品置顶（sort，与 filter 互斥意义上无冲突）
+  const [pinBasket, setPinBasket] = useState(false);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -177,23 +179,33 @@ export default function HomePage() {
           </button>
         </div>
 
-        {/* 当前篮子状态条（侧边栏选了篮子时显示，可一键按篮子过滤本页表格） */}
-        {currentBasket && (
-          <div className="flex items-center justify-between bg-blue-50 border border-blue-200 rounded px-4 py-2 text-sm">
+        {/* 当前篮子状态条（多选时合并显示） */}
+        {currentBaskets.length > 0 && (
+          <div className="flex items-center justify-between bg-blue-50 border border-blue-200 rounded px-4 py-2 text-sm flex-wrap gap-2">
             <div className="text-blue-800">
-              当前篮子：<span className="font-medium">{currentBasket.name}</span>
+              当前篮子：<span className="font-medium">{currentBaskets.map(b => b.name).join(' · ')}</span>
               <span className="text-xs text-blue-600 ml-2">
-                （{currentBasket.product_id_list.length} 产品 · {currentBasket.index_id_list.length} 基准）
+                （合并后 {combinedProductIds.length} 产品）
               </span>
             </div>
-            <label className="flex items-center gap-2 text-xs text-blue-700 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={filterByBasket}
-                onChange={e => setFilterByBasket(e.target.checked)}
-              />
-              只看篮子里的产品
-            </label>
+            <div className="flex items-center gap-4">
+              <label className="flex items-center gap-1.5 text-xs text-blue-700 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={pinBasket}
+                  onChange={e => setPinBasket(e.target.checked)}
+                />
+                置顶篮筐产品
+              </label>
+              <label className="flex items-center gap-1.5 text-xs text-blue-700 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={filterByBasket}
+                  onChange={e => setFilterByBasket(e.target.checked)}
+                />
+                只看篮子里的产品
+              </label>
+            </div>
           </div>
         )}
 
@@ -211,9 +223,22 @@ export default function HomePage() {
           ) : (
               <>
                 <ProductList
-                    products={filterByBasket && currentBasket
-                        ? products.filter(p => currentBasket.product_id_list.includes(p.id))
-                        : products}
+                    products={(() => {
+                        let list = products;
+                        if (filterByBasket && combinedProductIds.length > 0) {
+                            list = list.filter(p => combinedProductIds.includes(p.id));
+                        }
+                        if (pinBasket && combinedProductIds.length > 0) {
+                            // 篮子内的按 combinedProductIds 顺序排在最前，其它产品保持原顺序
+                            const idx = new Map(combinedProductIds.map((id, i) => [id, i]));
+                            list = [...list].sort((a, b) => {
+                                const ai = idx.has(a.id) ? idx.get(a.id)! : Infinity;
+                                const bi = idx.has(b.id) ? idx.get(b.id)! : Infinity;
+                                return ai - bi;
+                            });
+                        }
+                        return list;
+                    })()}
                     ordering={filters.ordering ?? ''}
                     onOrderingChange={(ordering) => handleFilterChange({ ordering })}
                 />

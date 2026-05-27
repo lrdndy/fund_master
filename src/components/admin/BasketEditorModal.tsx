@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { productApi, benchmarkApi } from '@/lib/api';
 import { useBasket } from '@/contexts/BasketContext';
 import type { Basket, Product, BenchmarkIndex } from '@/lib/types';
@@ -25,34 +25,71 @@ export default function BasketEditorModal({ initial, onClose }: Props) {
     const [products, setProducts] = useState<Product[]>([]);
     const [benchmarks, setBenchmarks] = useState<BenchmarkIndex[]>([]);
     const [productSearch, setProductSearch] = useState('');
+    const [productLoading, setProductLoading] = useState(false);
+    // 累积所有"见过"的产品到 cache，用于显示已选 chip 名字（即便不在当前 search 结果里）
+    const [productCache, setProductCache] = useState<Record<number, Product>>({});
 
+    const mergeCache = (ps: Product[]) => {
+        setProductCache(prev => {
+            const next = { ...prev };
+            for (const p of ps) next[p.id] = p;
+            return next;
+        });
+    };
+
+    // 初次加载：拉首屏 50 条 + 基准 + 已选产品的详情（用于 chip 名字）
     useEffect(() => {
         let cancelled = false;
         const load = async () => {
             try {
                 const [pRes, bRes] = await Promise.all([
-                    productApi.getProducts({}),
+                    productApi.getProducts({ page_size: '50' }),
                     benchmarkApi.getBenchmarks(),
                 ]);
                 if (cancelled) return;
-                setProducts(pRes.results ?? []);
+                const pList = pRes.results ?? [];
+                setProducts(pList);
+                mergeCache(pList);
                 setBenchmarks(bRes.results ?? []);
+
+                // 拉已选产品的 detail（首屏没覆盖到的）
+                const initialIds = initial?.product_id_list ?? [];
+                const missing = initialIds.filter(id => !pList.some(p => p.id === id));
+                if (missing.length > 0) {
+                    const details = await Promise.all(missing.map(id => productApi.getProductById(id).catch(() => null)));
+                    if (cancelled) return;
+                    mergeCache(details.filter((d): d is Product => d !== null));
+                }
             } catch (e) {
                 console.error(e);
             }
         };
         void load();
         return () => { cancelled = true; };
-    }, []);
+    }, [initial]);
 
-    const filteredProducts = useMemo(() => {
-        const kw = productSearch.trim().toLowerCase();
-        if (!kw) return products;
-        return products.filter(p =>
-            p.product_name?.toLowerCase().includes(kw) ||
-            p.product_code?.toLowerCase().includes(kw),
-        );
-    }, [products, productSearch]);
+    // 搜索：debounce 300ms 调 server search（page_size=50 限量返回）
+    useEffect(() => {
+        const t = setTimeout(() => {
+            void (async () => {
+                try {
+                    setProductLoading(true);
+                    const params: Record<string, string> = { page_size: '50' };
+                    const kw = productSearch.trim();
+                    if (kw) params.search = kw;
+                    const res = await productApi.getProducts(params);
+                    const list = res.results ?? [];
+                    setProducts(list);
+                    mergeCache(list);
+                } catch (e) {
+                    console.error(e);
+                } finally {
+                    setProductLoading(false);
+                }
+            })();
+        }, 300);
+        return () => clearTimeout(t);
+    }, [productSearch]);
 
     const toggleProduct = (id: number) => {
         setProductIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
@@ -124,7 +161,7 @@ export default function BasketEditorModal({ initial, onClose }: Props) {
                         </div>
                     </div>
 
-                    {/* 产品成员 */}
+                    {/* 产品成员（已选 chip） */}
                     <div>
                         <div className="flex items-center justify-between mb-2">
                             <label className="text-sm font-medium text-gray-700">产品成员（已选 {productIds.length}）</label>
@@ -132,15 +169,38 @@ export default function BasketEditorModal({ initial, onClose }: Props) {
                                 type="text"
                                 value={productSearch}
                                 onChange={e => setProductSearch(e.target.value)}
-                                placeholder="搜索名称 / 代码"
-                                className="px-2 py-1 border border-gray-300 rounded text-xs w-48"
+                                placeholder="搜索名称 / 代码（按全库搜）"
+                                className="px-2 py-1 border border-gray-300 rounded text-xs w-56"
                             />
                         </div>
+
+                        {productIds.length > 0 && (
+                            <div className="flex flex-wrap gap-1 mb-2">
+                                {productIds.map(id => {
+                                    const p = productCache[id];
+                                    return (
+                                        <span key={id} className="inline-flex items-center gap-1 text-xs bg-blue-50 text-blue-700 border border-blue-200 rounded px-2 py-0.5">
+                                            <span className="max-w-[160px] truncate">{p?.product_name ?? `产品#${id}`}</span>
+                                            <button
+                                                type="button"
+                                                onClick={() => toggleProduct(id)}
+                                                className="text-blue-500 hover:text-blue-800"
+                                            >
+                                                ×
+                                            </button>
+                                        </span>
+                                    );
+                                })}
+                            </div>
+                        )}
+
                         <div className="border border-gray-200 rounded max-h-60 overflow-y-auto">
-                            {filteredProducts.length === 0 ? (
+                            {productLoading ? (
+                                <div className="p-4 text-center text-sm text-gray-400">搜索中...</div>
+                            ) : products.length === 0 ? (
                                 <div className="p-4 text-center text-sm text-gray-400">未找到匹配产品</div>
                             ) : (
-                                filteredProducts.map(p => {
+                                products.map(p => {
                                     const checked = productIds.includes(p.id);
                                     return (
                                         <label
@@ -155,6 +215,7 @@ export default function BasketEditorModal({ initial, onClose }: Props) {
                                 })
                             )}
                         </div>
+                        <p className="text-[10px] text-gray-400 mt-1">搜索按后端 search 字段查全库（产品名 / 描述 / 代码）；列表最多展示 50 条，请用搜索精筛</p>
                     </div>
 
                     {/* 基准成员 */}
