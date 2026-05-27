@@ -30,8 +30,10 @@ export default function BasketEditorModal({ initial, onClose }: Props) {
         let cancelled = false;
         const load = async () => {
             try {
+                // 一次性拉全量产品（page_size=2000），前端 includes 模糊搜索；
+                // 否则默认 PAGE_SIZE=20 会让搜索框搜不到第 1 页之外的产品
                 const [pRes, bRes] = await Promise.all([
-                    productApi.getProducts({}),
+                    productApi.getProducts({ page_size: '2000' }),
                     benchmarkApi.getBenchmarks(),
                 ]);
                 if (cancelled) return;
