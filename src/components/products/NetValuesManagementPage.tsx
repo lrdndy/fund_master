@@ -185,7 +185,7 @@ const timeBtns = [
 ];
 
 export default function NetValuesManagementPage() {
-    const { currentBasket, loading: basketLoading } = useBasket();
+    const { baskets, currentBasket, currentBasketId, setCurrentBasketId, loading: basketLoading } = useBasket();
     const initedRef = useRef(false);
 
     // 状态
@@ -709,6 +709,22 @@ export default function NetValuesManagementPage() {
         setSelectedIndexIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
     const clearIndexes = () => setSelectedIndexIds([]);
 
+    // 应用篮子：把篮子里的产品作为基准 + 对比，篮子里的基准指数作为已选指数；
+    // 替换当前已选（不叠加）；应用后用户仍可在下方产品列表/基准 chip 区继续追加非篮子的对象
+    const applyBasket = () => {
+        if (!currentBasket) return;
+        const basketProds = filteredProducts.filter(p => currentBasket.product_id_list.includes(p.id));
+        if (basketProds.length > 0) {
+            setSelectedBenchmark(basketProds[0]);
+            setSelectedCompares(basketProds.slice(1));
+        } else {
+            setSelectedBenchmark(null);
+            setSelectedCompares([]);
+        }
+        const validIdx = benchmarks.map(b => b.id);
+        setSelectedIndexIds(currentBasket.index_id_list.filter(id => validIdx.includes(id)));
+    };
+
     // 渲染 UI
     return (
         <div style={STYLES.container}>
@@ -770,6 +786,43 @@ export default function NetValuesManagementPage() {
                         <button style={STYLES.resetBtn} onClick={handleResetFilter}>重置</button>
                     </div>
                 </div>
+            </div>
+
+            {/* 应用篮子条 */}
+            <div style={{
+                display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 12,
+                background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 8,
+                padding: '10px 14px', marginBottom: 16,
+            }}>
+                <span style={{ fontSize: 14, fontWeight: 600, color: '#374151' }}>🧺 篮子</span>
+                <select
+                    value={currentBasketId ?? ''}
+                    onChange={e => setCurrentBasketId(e.target.value ? Number(e.target.value) : null)}
+                    style={{ padding: '4px 8px', border: '1px solid #d1d5db', borderRadius: 4, fontSize: 13, background: '#fff' }}
+                >
+                    <option value="">未选择</option>
+                    {baskets.map(b => (
+                        <option key={b.id} value={b.id}>
+                            {b.name}（{b.product_id_list.length} 产品 + {b.index_id_list.length} 基准）
+                        </option>
+                    ))}
+                </select>
+                <button
+                    type="button"
+                    onClick={applyBasket}
+                    disabled={!currentBasket}
+                    style={{
+                        padding: '4px 12px', fontSize: 13, borderRadius: 4,
+                        background: currentBasket ? '#3b82f6' : '#e5e7eb',
+                        color: currentBasket ? '#fff' : '#9ca3af',
+                        border: 'none', cursor: currentBasket ? 'pointer' : 'not-allowed',
+                    }}
+                >
+                    应用到本页（替换已选）
+                </button>
+                <span style={{ fontSize: 12, color: '#6b7280' }}>
+                    应用后仍可在下方产品列表 / 基准指数区继续追加非篮子的对象
+                </span>
             </div>
 
             {/* 产品选择区 */}
