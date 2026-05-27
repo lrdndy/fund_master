@@ -185,7 +185,11 @@ const timeBtns = [
 ];
 
 export default function NetValuesManagementPage() {
-    const { baskets, currentBasket, currentBasketId, setCurrentBasketId, loading: basketLoading } = useBasket();
+    const {
+        baskets, currentBaskets, currentBasketIds, toggleBasket, clearBasketSelection,
+        combinedProductIds, combinedIndexIds,
+        loading: basketLoading,
+    } = useBasket();
     const initedRef = useRef(false);
 
     // 状态
@@ -271,9 +275,10 @@ export default function NetValuesManagementPage() {
                 let comps: Product[] = [];
                 if (cIds) try { comps = prods.filter(p => JSON.parse(cIds).includes(p.id)); } catch {}
 
-                // 篮子预填：仅在两个 key 都没存（即用户从未在本页主动选过）时生效
-                if (!bId && !cIds && currentBasket && currentBasket.product_id_list.length > 0) {
-                    const basketProds = prods.filter(p => currentBasket.product_id_list.includes(p.id));
+                // 篮子预填：仅在两个 key 都没存（即用户从未在本页主动选过）时生效；
+                // 多选篮子时用 combinedProductIds 合并后预填
+                if (!bId && !cIds && combinedProductIds.length > 0) {
+                    const basketProds = prods.filter(p => combinedProductIds.includes(p.id));
                     if (basketProds.length > 0) {
                         bench = basketProds[0];
                         comps = basketProds.slice(1);
@@ -287,7 +292,8 @@ export default function NetValuesManagementPage() {
             }
         };
         void initProducts();
-    }, [basketLoading, currentBasket]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [basketLoading]);
 
     // 产品筛选（类型完全匹配）
     useEffect(() => {
@@ -328,9 +334,9 @@ export default function NetValuesManagementPage() {
                         const ids = JSON.parse(stored) as number[];
                         setSelectedIndexIds(ids.filter(id => valid.includes(id)));
                     } catch {}
-                } else if (currentBasket && currentBasket.index_id_list.length > 0) {
-                    // 用户没在本页选过 → 用篮子的基准预填
-                    setSelectedIndexIds(currentBasket.index_id_list.filter(id => valid.includes(id)));
+                } else if (combinedIndexIds.length > 0) {
+                    // 用户没在本页选过 → 用合并篮子的基准预填
+                    setSelectedIndexIds(combinedIndexIds.filter(id => valid.includes(id)));
                 }
             } catch (err) {
                 console.error('加载基准指数失败', err);
@@ -709,11 +715,10 @@ export default function NetValuesManagementPage() {
         setSelectedIndexIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
     const clearIndexes = () => setSelectedIndexIds([]);
 
-    // 应用篮子：把篮子里的产品作为基准 + 对比，篮子里的基准指数作为已选指数；
-    // 替换当前已选（不叠加）；应用后用户仍可在下方产品列表/基准 chip 区继续追加非篮子的对象
+    // 应用篮子（多选合并后的产品/基准）：替换当前已选；之后用户仍可继续追加非篮子对象
     const applyBasket = () => {
-        if (!currentBasket) return;
-        const basketProds = filteredProducts.filter(p => currentBasket.product_id_list.includes(p.id));
+        if (combinedProductIds.length === 0 && combinedIndexIds.length === 0) return;
+        const basketProds = filteredProducts.filter(p => combinedProductIds.includes(p.id));
         if (basketProds.length > 0) {
             setSelectedBenchmark(basketProds[0]);
             setSelectedCompares(basketProds.slice(1));
@@ -722,7 +727,7 @@ export default function NetValuesManagementPage() {
             setSelectedCompares([]);
         }
         const validIdx = benchmarks.map(b => b.id);
-        setSelectedIndexIds(currentBasket.index_id_list.filter(id => validIdx.includes(id)));
+        setSelectedIndexIds(combinedIndexIds.filter(id => validIdx.includes(id)));
     };
 
     // 渲染 UI
@@ -788,40 +793,56 @@ export default function NetValuesManagementPage() {
                 </div>
             </div>
 
-            {/* 应用篮子条 */}
+            {/* 应用篮子条（多选） */}
             <div style={{
-                display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 12,
+                display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 10,
                 background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 8,
                 padding: '10px 14px', marginBottom: 16,
             }}>
                 <span style={{ fontSize: 14, fontWeight: 600, color: '#374151' }}>🧺 篮子</span>
-                <select
-                    value={currentBasketId ?? ''}
-                    onChange={e => setCurrentBasketId(e.target.value ? Number(e.target.value) : null)}
-                    style={{ padding: '4px 8px', border: '1px solid #d1d5db', borderRadius: 4, fontSize: 13, background: '#fff' }}
-                >
-                    <option value="">未选择</option>
-                    {baskets.map(b => (
-                        <option key={b.id} value={b.id}>
-                            {b.name}（{b.product_id_list.length} 产品 + {b.index_id_list.length} 基准）
-                        </option>
-                    ))}
-                </select>
+                {baskets.length === 0 ? (
+                    <span style={{ fontSize: 12, color: '#9ca3af' }}>暂无篮子，在侧边栏新建</span>
+                ) : (
+                    baskets.map(b => {
+                        const active = currentBasketIds.includes(b.id);
+                        return (
+                            <label
+                                key={b.id}
+                                style={{
+                                    padding: '3px 10px', borderRadius: 14, fontSize: 12, cursor: 'pointer',
+                                    border: `1px solid ${active ? '#3b82f6' : '#d1d5db'}`,
+                                    background: active ? '#eff6ff' : '#fff',
+                                    color: active ? '#1d4ed8' : '#4b5563',
+                                }}
+                            >
+                                <input type="checkbox" style={{ display: 'none' }} checked={active} onChange={() => toggleBasket(b.id)} />
+                                {b.name}
+                            </label>
+                        );
+                    })
+                )}
+                {currentBasketIds.length > 0 && (
+                    <button type="button" onClick={clearBasketSelection}
+                        style={{ fontSize: 11, color: '#6b7280', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}>
+                        清空
+                    </button>
+                )}
                 <button
                     type="button"
                     onClick={applyBasket}
-                    disabled={!currentBasket}
+                    disabled={currentBaskets.length === 0}
                     style={{
                         padding: '4px 12px', fontSize: 13, borderRadius: 4,
-                        background: currentBasket ? '#3b82f6' : '#e5e7eb',
-                        color: currentBasket ? '#fff' : '#9ca3af',
-                        border: 'none', cursor: currentBasket ? 'pointer' : 'not-allowed',
+                        background: currentBaskets.length > 0 ? '#3b82f6' : '#e5e7eb',
+                        color: currentBaskets.length > 0 ? '#fff' : '#9ca3af',
+                        border: 'none', cursor: currentBaskets.length > 0 ? 'pointer' : 'not-allowed',
+                        marginLeft: 'auto',
                     }}
                 >
-                    应用到本页（替换已选）
+                    应用到本页（{currentBaskets.length > 1 ? `合并 ${currentBaskets.length} 个篮子，` : ''}替换已选）
                 </button>
-                <span style={{ fontSize: 12, color: '#6b7280' }}>
-                    应用后仍可在下方产品列表 / 基准指数区继续追加非篮子的对象
+                <span style={{ fontSize: 11, color: '#6b7280', width: '100%' }}>
+                    可多选；多个篮子的产品/基准会去重合并。应用后仍可在下方产品列表 / 基准指数区继续追加非篮子的对象
                 </span>
             </div>
 

@@ -29,7 +29,11 @@ export default function CorrelationBoard() {
     const INDEX_STORAGE_KEY = 'correlation_selected_index_ids';
 
     // 篮子上下文：初次进入页面（localStorage 没有本页选中记录时）用篮子预填
-    const { baskets, currentBasket, currentBasketId, setCurrentBasketId, loading: basketLoading } = useBasket();
+    const {
+        baskets, currentBaskets, currentBasketIds, toggleBasket, clearBasketSelection,
+        combinedProductIds, combinedIndexIds,
+        loading: basketLoading,
+    } = useBasket();
     const initedRef = useRef(false);
 
     // 核心状态
@@ -86,8 +90,8 @@ export default function CorrelationBoard() {
                     } catch {
                         setSelectedProductIds([]);
                     }
-                } else if (currentBasket && currentBasket.product_id_list.length > 0) {
-                    const valid = currentBasket.product_id_list.filter(id => products.some(p => p.id === id));
+                } else if (combinedProductIds.length > 0) {
+                    const valid = combinedProductIds.filter(id => products.some(p => p.id === id));
                     setSelectedProductIds(valid);
                 }
 
@@ -102,8 +106,8 @@ export default function CorrelationBoard() {
                             const ids = JSON.parse(savedIdx) as number[];
                             setSelectedIndexIds(ids.filter(id => blist.some(b => b.id === id)));
                         } catch {}
-                    } else if (currentBasket && currentBasket.index_id_list.length > 0) {
-                        setSelectedIndexIds(currentBasket.index_id_list.filter(id => blist.some(b => b.id === id)));
+                    } else if (combinedIndexIds.length > 0) {
+                        setSelectedIndexIds(combinedIndexIds.filter(id => blist.some(b => b.id === id)));
                     }
                 } catch (e) {
                     console.error('基准列表加载失败', e);
@@ -180,15 +184,12 @@ export default function CorrelationBoard() {
     };
     const clearIndexes = () => setSelectedIndexIds([]);
 
-    // 应用篮子：用篮子里的产品 + 基准指数替换当前已选；
-    // 之后用户仍可在产品列表 / 基准 chip 区追加非篮子的对象
+    // 应用篮子（多选合并后的产品/基准）：替换当前已选
     const applyBasket = () => {
-        if (!currentBasket) return;
+        if (combinedProductIds.length === 0 && combinedIndexIds.length === 0) return;
         const valid = allProducts.map(p => p.id);
-        setSelectedProductIds(currentBasket.product_id_list.filter(id => valid.includes(id)));
-        // 基准列表 selector 在矩阵区上方已加载到 benchmarks state，这里直接 set；
-        // 即便 benchmarks 尚未加载，setSelectedIndexIds 后下次加载完会自然 filter 出有效项
-        setSelectedIndexIds(currentBasket.index_id_list);
+        setSelectedProductIds(combinedProductIds.filter(id => valid.includes(id)));
+        setSelectedIndexIds(combinedIndexIds);
     };
 
     // 2. 筛选条件变更处理
@@ -373,30 +374,37 @@ export default function CorrelationBoard() {
                 产品相关性看板
             </h1>
 
-            {/* 应用篮子条 */}
-            <div className="mb-4 flex items-center flex-wrap gap-3 bg-white border border-slate-200 rounded-xl px-4 py-3 shadow-sm">
+            {/* 应用篮子条（多选合并） */}
+            <div className="mb-4 flex items-center flex-wrap gap-2 bg-white border border-slate-200 rounded-xl px-4 py-3 shadow-sm">
                 <span className="text-sm font-semibold text-slate-700">🧺 篮子</span>
-                <select
-                    value={currentBasketId ?? ''}
-                    onChange={e => setCurrentBasketId(e.target.value ? Number(e.target.value) : null)}
-                    className="px-2 py-1 border border-slate-300 rounded text-sm bg-white"
-                >
-                    <option value="">未选择</option>
-                    {baskets.map(b => (
-                        <option key={b.id} value={b.id}>
-                            {b.name}（{b.product_id_list.length} 产品 + {b.index_id_list.length} 基准）
-                        </option>
-                    ))}
-                </select>
+                {baskets.length === 0 ? (
+                    <span className="text-xs text-slate-400">暂无篮子，在侧边栏新建</span>
+                ) : (
+                    baskets.map(b => {
+                        const active = currentBasketIds.includes(b.id);
+                        return (
+                            <label
+                                key={b.id}
+                                className={`px-2.5 py-1 rounded-full text-xs cursor-pointer border ${active ? 'bg-blue-50 text-blue-700 border-blue-400' : 'bg-white text-slate-600 border-slate-300 hover:border-slate-400'}`}
+                            >
+                                <input type="checkbox" className="hidden" checked={active} onChange={() => toggleBasket(b.id)} />
+                                {b.name}
+                            </label>
+                        );
+                    })
+                )}
+                {currentBasketIds.length > 0 && (
+                    <button type="button" onClick={clearBasketSelection} className="text-xs text-slate-500 hover:text-red-600 underline">清空</button>
+                )}
                 <button
                     type="button"
                     onClick={applyBasket}
-                    disabled={!currentBasket}
-                    className={`px-3 py-1 text-sm rounded ${currentBasket ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-slate-200 text-slate-400 cursor-not-allowed'}`}
+                    disabled={currentBaskets.length === 0}
+                    className={`ml-auto px-3 py-1 text-sm rounded ${currentBaskets.length > 0 ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-slate-200 text-slate-400 cursor-not-allowed'}`}
                 >
-                    应用到本页（替换已选）
+                    应用到本页（{currentBaskets.length > 1 ? `合并 ${currentBaskets.length} 个，` : ''}替换已选）
                 </button>
-                <span className="text-xs text-slate-500">应用后仍可在下方产品列表 / 基准 chip 区继续追加非篮子的对象</span>
+                <p className="text-xs text-slate-500 w-full">可多选；多个篮子的产品/基准会去重合并。应用后仍可在下方产品 / 基准 chip 区继续追加非篮子的对象</p>
             </div>
 
             {/* 1. 筛选区域 */}
