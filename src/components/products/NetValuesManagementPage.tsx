@@ -264,7 +264,8 @@ export default function NetValuesManagementPage() {
         initedRef.current = true;
         const initProducts = async () => {
             try {
-                const res = await productApi.getProducts({});
+                // 一次拉全库（page_size=2000），保证篮子里的产品总在候选列表里
+                const res = await productApi.getProducts({ page_size: '2000' });
                 const prods = res.results ?? [];
                 setFilteredProducts(prods);
                 if (!prods.length) return;
@@ -301,6 +302,7 @@ export default function NetValuesManagementPage() {
             setLoading(true);
             try {
                 const params = Object.fromEntries(Object.entries(filters).filter(([, v]) => v)) as Record<string, string>;
+                params.page_size = '2000'; // 让 picker 看到全库；否则默认 20 条会让篮子产品不在列表里
                 const res = await productApi.getProducts(params);
                 setFilteredProducts(res.results ?? []);
                 setProductError(null);
@@ -855,9 +857,20 @@ export default function NetValuesManagementPage() {
                                 filteredProducts.map(p => {
                                     const isB = p.id === selectedBenchmark?.id;
                                     const isC = selectedCompares.some(x => x.id === p.id);
+                                    const inBasket = combinedProductIds.includes(p.id);
                                     return (
-                                        <div key={p.id} style={{ ...STYLES.productListItem, ...(isB || isC ? STYLES.productListItemActive : {}) }}>
-                                            <span>{p.product_name}</span>
+                                        <div
+                                            key={p.id}
+                                            style={{
+                                                ...STYLES.productListItem,
+                                                ...(isB || isC ? STYLES.productListItemActive : {}),
+                                                ...(inBasket && !isB && !isC ? { background: '#fffbeb', borderLeft: '3px solid #f59e0b', paddingLeft: 9 } : {}),
+                                            }}
+                                        >
+                                            <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                {p.product_name}
+                                                {inBasket && <span title="该产品在当前选中的篮子里" style={{ fontSize: 10, padding: '1px 6px', borderRadius: 8, background: '#fef3c7', color: '#92400e' }}>🧺</span>}
+                                            </span>
                                             <div style={{ display: 'flex', gap: 8 }}>
                                                 <button onClick={() => setBench(p)} style={{
                                                     padding: '4px 8px', borderWidth: 1, borderStyle: 'solid', borderColor: isB ? '#3b82f6' : '#d1d5db',
