@@ -65,7 +65,7 @@ export default function HomePage() {
     ordering: '',
   });
 
-  // 进入页面时恢复上次筛选（mount 后读，避免 SSR hydration mismatch）
+  // 进入页面时恢复上次筛选 + 篮子视图开关（mount 后读，避免 SSR hydration mismatch）
   const [filtersRestored, setFiltersRestored] = useState(false);
   useEffect(() => {
     const saved = localStorage.getItem('home_product_filters');
@@ -75,7 +75,15 @@ export default function HomePage() {
         setFilters(prev => ({ ...prev, ...parsed }));
       } catch { /* ignore */ }
     }
-    // 标记恢复完成；与 setFilters 同批生效，下一轮 render 后才允许持久化
+    const savedView = localStorage.getItem('home_basket_view');
+    if (savedView) {
+      try {
+        const v = JSON.parse(savedView) as { filterByBasket?: boolean; pinBasket?: boolean };
+        if (typeof v.filterByBasket === 'boolean') setFilterByBasket(v.filterByBasket);
+        if (typeof v.pinBasket === 'boolean') setPinBasket(v.pinBasket);
+      } catch { /* ignore */ }
+    }
+    // 标记恢复完成；与上面 setState 同批生效，下一轮 render 后才允许持久化
     setFiltersRestored(true);
     // eslint-disable-next-line react-hooks/set-state-in-effect
   }, []);
@@ -85,6 +93,12 @@ export default function HomePage() {
     if (!filtersRestored) return;
     localStorage.setItem('home_product_filters', JSON.stringify(filters));
   }, [filters, filtersRestored]);
+
+  // 篮子视图开关（置顶 / 只看）持久化
+  useEffect(() => {
+    if (!filtersRestored) return;
+    localStorage.setItem('home_basket_view', JSON.stringify({ filterByBasket, pinBasket }));
+  }, [filterByBasket, pinBasket, filtersRestored]);
 
   // 加载所有标签数据
   useEffect(() => {
