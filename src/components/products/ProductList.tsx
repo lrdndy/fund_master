@@ -78,8 +78,7 @@ export default function ProductList({ products, ordering = '', onOrderingChange,
                     >
                         近一月收益率 <span className={ordering.includes('return_1m') ? 'text-blue-600' : 'text-gray-400'}>{return1mArrow}</span>
                     </th>
-                    <th className="px-6 py-3">打分</th>
-                    <th className="px-6 py-3 rounded-r-lg">操作</th>
+                    <th className="px-6 py-3 rounded-r-lg">打分</th>
                 </tr>
                 </thead>
                 <tbody>
@@ -107,33 +106,36 @@ export default function ProductList({ products, ordering = '', onOrderingChange,
                             <td className="px-6 py-4">{product.algorithm_name}</td>
                             <td className="px-6 py-4">{product.strategy_name}</td>
                             <td className="px-6 py-4">{product.fof_own_name ?? '—'}</td>
-                            <td className="px-6 py-4">
-                                {product.custom_tags?.length ? (
-                                    <div className="flex flex-wrap gap-1">
-                                        {product.custom_tags.map((tag) => (
+                            {/* 自定义标签列：双击或点 ✎ 直接编辑，无需进详情页 */}
+                            <td
+                                className="px-6 py-4"
+                                onDoubleClick={(e) => { e.stopPropagation(); setTagEditing(product); }}
+                                title="双击编辑标签"
+                            >
+                                <div className="group/tags flex items-center gap-1 flex-wrap">
+                                    {product.custom_tags?.length ? (
+                                        product.custom_tags.map((tag) => (
                                             <span
                                                 key={tag.id}
                                                 className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded text-xs"
                                             >
                                                 {tag.tag_name}
                                             </span>
-                                        ))}
-                                    </div>
-                                ) : (
-                                    '—'
-                                )}
+                                        ))
+                                    ) : (
+                                        <span className="text-gray-400">—</span>
+                                    )}
+                                    <button
+                                        onClick={(e) => { e.stopPropagation(); setTagEditing(product); }}
+                                        className="opacity-0 group-hover/tags:opacity-100 text-gray-400 hover:text-blue-600 ml-0.5 transition-opacity"
+                                        title="编辑标签"
+                                    >
+                                        ✎
+                                    </button>
+                                </div>
                             </td>
                             <td className={`px-6 py-4 font-medium ${ret.cls}`}>{ret.text}</td>
                             <td className="px-6 py-4">{formatScore(product.score)}</td>
-                            <td className="px-6 py-4">
-                                <button
-                                    onClick={(e) => { e.stopPropagation(); setTagEditing(product); }}
-                                    className="text-xs px-2 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 whitespace-nowrap"
-                                    title="无需进入详情页，直接给该产品打/移除自定义标签"
-                                >
-                                    + 标签
-                                </button>
-                            </td>
                         </tr>
                     );
                 })}

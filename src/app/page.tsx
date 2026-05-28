@@ -53,17 +53,34 @@ export default function HomePage() {
     customTags: [],
   });
 
-  // 🔥 修复：添加 custom: ''
+  // filters 默认值（切走再回来要恢复，见下方 localStorage 持久化）
   const [filters, setFilters] = useState<ProductFilterParams>({
     cycle: '',
     quant_type: '',
     algorithm: '',
     strategy: '',
     fof_own: '',
-    custom: '', // ✅ 这里加上
+    custom: '',
     search: '',
     ordering: '',
   });
+
+  // 进入页面时恢复上次筛选（mount 后读，避免 SSR hydration mismatch）
+  useEffect(() => {
+    const saved = localStorage.getItem('home_product_filters');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved) as Partial<ProductFilterParams>;
+        setFilters(prev => ({ ...prev, ...parsed }));
+      } catch { /* ignore */ }
+    }
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+  }, []);
+
+  // 筛选变化时持久化
+  useEffect(() => {
+    localStorage.setItem('home_product_filters', JSON.stringify(filters));
+  }, [filters]);
 
   // 加载所有标签数据
   useEffect(() => {
