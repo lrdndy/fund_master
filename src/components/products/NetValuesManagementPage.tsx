@@ -222,13 +222,12 @@ export default function NetValuesManagementPage() {
     const returnChartRef = useRef<HTMLDivElement>(null);
     const drawdownChartRef = useRef<HTMLDivElement>(null);
     const corrChartRef = useRef<HTMLDivElement>(null);
-    const excessChartRef = useRef<HTMLDivElement>(null);
     const netValueChart = useRef<echarts.ECharts | null>(null);
     const returnChart = useRef<echarts.ECharts | null>(null);
     const drawdownChart = useRef<echarts.ECharts | null>(null);
     const corrChart = useRef<echarts.ECharts | null>(null);
-    const excessChart = useRef<echarts.ECharts | null>(null);
-    // 超额收益基准：存某条 series 的 id（产品正数 / 指数负数）；null = 用第一条基准/第一条
+    // 超额收益：叠加到净值图和收益率图（次坐标轴虚线）；basis 用某条 series 的 id 作基准
+    const [showExcess, setShowExcess] = useState(false);
     const [excessBaseId, setExcessBaseId] = useState<number | null>(null);
     const debouncedResize = useRef<(() => void) | null>(null);
 
@@ -239,13 +238,11 @@ export default function NetValuesManagementPage() {
             if (returnChartRef.current) returnChart.current = echarts.init(returnChartRef.current);
             if (drawdownChartRef.current) drawdownChart.current = echarts.init(drawdownChartRef.current);
             if (corrChartRef.current) corrChart.current = echarts.init(corrChartRef.current);
-            if (excessChartRef.current) excessChart.current = echarts.init(excessChartRef.current);
             debouncedResize.current = debounce(() => {
                 netValueChart.current?.resize();
                 returnChart.current?.resize();
                 drawdownChart.current?.resize();
                 corrChart.current?.resize();
-                excessChart.current?.resize();
             }, 200);
             window.addEventListener('resize', debouncedResize.current);
         };
@@ -257,7 +254,6 @@ export default function NetValuesManagementPage() {
             returnChart.current?.dispose();
             drawdownChart.current?.dispose();
             corrChart.current?.dispose();
-            excessChart.current?.dispose();
         };
     }, []);
 
@@ -556,21 +552,29 @@ export default function NetValuesManagementPage() {
             };
         });
 
+        const { excessSeries, baseName } = buildExcessSeries(alignT0);
+        const sub = [
+            alignT0 ? `对齐共同起跳日：${alignT0}` : '',
+            excessSeries.length ? `超额基准：${baseName}（右轴虚线）` : '',
+        ].filter(Boolean).join('　·　');
+
         netValueChart.current.setOption({
             title: {
                 text: '累计净值（归一化，起点=1）',
-                subtext: alignT0 ? `多产品对比已对齐共同起跳日：${alignT0}` : undefined,
+                subtext: sub || undefined,
                 left: 'center',
                 textStyle: { fontSize: 16, fontWeight: 'bold' },
                 subtextStyle: { fontSize: 12, color: '#6b7280' },
             },
-            legend: { top: alignT0 ? 56 : 40, left: 'center' },
+            legend: { top: sub ? 56 : 40, left: 'center' },
             tooltip: { trigger: 'axis', valueFormatter: (v: unknown) => v == null ? '—' : Number(v).toFixed(4) } as never,
-            grid: { left: '10%', right: '6%', bottom: '18%', top: alignT0 ? '22%' : '18%' },
+            grid: { left: '10%', right: excessSeries.length ? '10%' : '6%', bottom: '18%', top: sub ? '22%' : '18%' },
             xAxis: { type: 'time', axisLabel: { rotate: 20 } },
-            yAxis: { type: 'value', name: '相对净值', scale: true, axisLabel: { formatter: (v: number) => v.toFixed(3) } },
+            yAxis: excessSeries.length
+                ? [{ type: 'value', name: '相对净值', scale: true, axisLabel: { formatter: (v: number) => v.toFixed(3) } }, excessYAxis()]
+                : { type: 'value', name: '相对净值', scale: true, axisLabel: { formatter: (v: number) => v.toFixed(3) } },
             dataZoom: [{ type: 'slider', bottom: 5 }, { type: 'inside' }],
-            series
+            series: [...series, ...excessSeries],
         } as Record<string, unknown>, true);
     };
 
@@ -599,21 +603,29 @@ export default function NetValuesManagementPage() {
             };
         });
 
+        const { excessSeries, baseName } = buildExcessSeries(alignT0);
+        const sub = [
+            alignT0 ? `对齐共同起跳日：${alignT0}` : '',
+            excessSeries.length ? `超额基准：${baseName}（右轴虚线）` : '',
+        ].filter(Boolean).join('　·　');
+
         returnChart.current.setOption({
             title: {
                 text: '收益率走势（%）',
-                subtext: alignT0 ? `多产品对比已对齐共同起跳日：${alignT0}` : undefined,
+                subtext: sub || undefined,
                 left: 'center',
                 textStyle: { fontSize: 16, fontWeight: 'bold' },
                 subtextStyle: { fontSize: 12, color: '#6b7280' },
             },
-            legend: { top: alignT0 ? 56 : 40, left: 'center' },
+            legend: { top: sub ? 56 : 40, left: 'center' },
             tooltip: { trigger: 'axis', valueFormatter: (v: unknown) => v == null ? '—' : `${Number(v).toFixed(2)}%` } as never,
-            grid: { left: '10%', right: '6%', bottom: '18%', top: alignT0 ? '22%' : '18%' },
+            grid: { left: '10%', right: excessSeries.length ? '10%' : '6%', bottom: '18%', top: sub ? '22%' : '18%' },
             xAxis: { type: 'time', axisLabel: { rotate: 20 } },
-            yAxis: { type: 'value', name: '收益率(%)' },
+            yAxis: excessSeries.length
+                ? [{ type: 'value', name: '收益率(%)' }, excessYAxis()]
+                : { type: 'value', name: '收益率(%)' },
             dataZoom: [{ type: 'slider', bottom: 5 }, { type: 'inside' }],
-            series
+            series: [...series, ...excessSeries],
         } as Record<string, unknown>, true);
     };
 
@@ -704,24 +716,19 @@ export default function NetValuesManagementPage() {
         } as Record<string, unknown>, true);
     };
 
-    // 渲染超额收益图：每条 series 相对'基准'的累计收益差。
-    // 超额(t) = 归一化产品(t) - 归一化基准(t)（都以共同起跳点 T0 归一为 1），再乘 100 转 %。
-    // 基准默认取 excessBaseId 指定的 series，否则第一条 isBenchmark，否则第一条。
-    const renderExcess = () => {
-        if (!excessChart.current) return;
-        if (chartProductList.length < 2) {
-            excessChart.current.clear();
-            return;
-        }
+    // 计算超额收益 series（叠加到净值/收益率图，用次坐标轴 yAxisIndex=1）。
+    // 超额(t) = 归一化产品(t) - 归一化基准(t)（都以共同起跳点 T0 归一为 1），乘 100 转 %。
+    // 返回 { excessSeries, baseName }；showExcess 关或不足 2 条时返回空。
+    const buildExcessSeries = (alignT0: string | undefined) => {
+        if (!showExcess || chartProductList.length < 2) return { excessSeries: [] as Record<string, unknown>[], baseName: '' };
         const base = chartProductList.find(p => p.id === excessBaseId)
             ?? chartProductList.find(p => p.isBenchmark)
             ?? chartProductList[0];
-        const alignT0 = computeAlignT0(chartProductList);
         const baseVisible = alignT0 ? base.netValues.filter(nv => nv.date >= alignT0) : base.netValues;
         const baseStart = baseVisible.find(nv => nv.value > 0)?.value || 1;
         const baseMap = new Map(baseVisible.filter(nv => nv.value > 0).map(nv => [nv.date, nv.value / baseStart]));
 
-        const series = chartProductList
+        const excessSeries = chartProductList
             .filter(p => p.id !== base.id)
             .map((p, i) => {
                 const s = getSeriesStyle(p.isBenchmark, i);
@@ -729,56 +736,28 @@ export default function NetValuesManagementPage() {
                 const pStart = visible.find(nv => nv.value > 0)?.value || 1;
                 const data = visible
                     .filter(nv => nv.value > 0 && baseMap.has(nv.date))
-                    .map(nv => {
-                        const excess = (nv.value / pStart) - baseMap.get(nv.date)!;
-                        return [nv.date, parseFloat((excess * 100).toFixed(2))];
-                    });
+                    .map(nv => [nv.date, parseFloat((((nv.value / pStart) - baseMap.get(nv.date)!) * 100).toFixed(2))]);
                 return {
-                    name: displayName(p),
+                    name: `${displayName(p)} 超额`,
                     type: 'line' as const,
+                    yAxisIndex: 1,
                     smooth: true,
                     data,
-                    lineStyle: { color: s.lineColor, width: 2, type: s.lineType },
+                    lineStyle: { color: s.lineColor, width: 1.5, type: 'dashed' as const, opacity: 0.9 },
                     itemStyle: { color: s.itemColor },
                     showSymbol: false,
                     emphasis: { focus: 'series' as const },
                 };
             });
-
-        excessChart.current.setOption({
-            title: {
-                text: '超额收益（相对基准）',
-                subtext: `基准：${displayName(base)}${alignT0 ? ` · 对齐起跳日 ${alignT0}` : ''}`,
-                left: 'center',
-                textStyle: { fontSize: 16, fontWeight: 'bold' },
-                subtextStyle: { fontSize: 12, color: '#6b7280' },
-            },
-            legend: { top: 56, left: 'center' },
-            tooltip: { trigger: 'axis', valueFormatter: (v: unknown) => v == null ? '—' : `${Number(v) > 0 ? '+' : ''}${Number(v).toFixed(2)}%` } as never,
-            grid: { left: '10%', right: '6%', bottom: '18%', top: '24%' },
-            xAxis: { type: 'time', axisLabel: { rotate: 20 } },
-            yAxis: {
-                type: 'value', name: '超额(%)', scale: true,
-                axisLabel: { formatter: (v: number) => `${v.toFixed(1)}` },
-            },
-            // 0 轴参考线：超额 > 0 跑赢基准，< 0 跑输
-            visualMap: undefined,
-            dataZoom: [{ type: 'slider', bottom: 5 }, { type: 'inside' }],
-            series: [
-                ...series,
-                {
-                    name: '基准线',
-                    type: 'line' as const,
-                    markLine: {
-                        silent: true, symbol: 'none',
-                        lineStyle: { color: '#9ca3af', type: 'dashed' },
-                        data: [{ yAxis: 0 }],
-                    },
-                    data: [],
-                },
-            ],
-        } as Record<string, unknown>, true);
+        return { excessSeries, baseName: displayName(base) };
     };
+
+    // 超额次坐标轴定义（右侧，% 单位 + 0 线）
+    const excessYAxis = () => ({
+        type: 'value' as const, name: '超额%', position: 'right' as const, scale: true,
+        axisLabel: { formatter: (v: number) => `${v.toFixed(1)}` },
+        splitLine: { show: false },
+    });
 
     // 图表更新
     useEffect(() => {
@@ -786,9 +765,8 @@ export default function NetValuesManagementPage() {
         renderReturn();
         renderDrawdown();
         renderCorrelation();
-        renderExcess();
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [chartProductList, excessBaseId]);
+    }, [chartProductList, showExcess, excessBaseId]);
 
     // 交互方法
     const handleFilterChange = (k: keyof ProductFilterParams, v: string) => setFilters(f => ({ ...f, [k]: v }));
@@ -1065,15 +1043,19 @@ export default function NetValuesManagementPage() {
             </div>
 
             {/* 图表区域 */}
-            <div style={STYLES.chartGrid}>
-                <div style={STYLES.chartContainer}><div ref={netValueChartRef} style={STYLES.chartDom} />{(chartLoading || chartError || !chartProductList.length) && <div style={STYLES.placeholder}>{chartLoading ? '加载中' : chartError || '无数据'}</div>}</div>
-                <div style={STYLES.chartContainer}><div ref={returnChartRef} style={STYLES.chartDom} />{(chartLoading || chartError || !chartProductList.length) && <div style={STYLES.placeholder}>{chartLoading ? '加载中' : chartError || '无数据'}</div>}</div>
-                <div style={STYLES.chartContainer}><div ref={drawdownChartRef} style={STYLES.chartDom} />{(chartLoading || chartError || !chartProductList.length) && <div style={STYLES.placeholder}>{chartLoading ? '加载中' : chartError || '无数据'}</div>}</div>
-                <div style={STYLES.chartContainer}><div ref={corrChartRef} style={STYLES.chartDom} />{(chartLoading || chartProductList.length < 2) && <div style={STYLES.placeholder}>{chartLoading ? '加载中' : '至少2个产品显示矩阵'}</div>}</div>
-                {/* 超额收益图：可在右上角切换基准 */}
-                <div style={STYLES.chartContainer}>
-                    {chartProductList.length >= 2 && (
-                        <div style={{ position: 'absolute', top: 16, right: 20, zIndex: 2, display: 'flex', alignItems: 'center', gap: 6 }}>
+            {/* 图表叠加控制：超额收益（相对基准）可叠加到累计净值图和收益率图 */}
+            {chartProductList.length >= 2 && (
+                <div style={{
+                    display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 10,
+                    background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 8,
+                    padding: '8px 14px', marginBottom: 12,
+                }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#374151', cursor: 'pointer' }}>
+                        <input type="checkbox" checked={showExcess} onChange={e => setShowExcess(e.target.checked)} />
+                        在净值/收益率图上叠加「超额收益」（相对基准的差值，次坐标轴虚线）
+                    </label>
+                    {showExcess && (
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                             <span style={{ fontSize: 12, color: '#6b7280' }}>基准</span>
                             <select
                                 value={excessBaseId ?? ''}
@@ -1085,11 +1067,16 @@ export default function NetValuesManagementPage() {
                                     <option key={p.id} value={p.id}>{displayName(p)}</option>
                                 ))}
                             </select>
-                        </div>
+                        </span>
                     )}
-                    <div ref={excessChartRef} style={STYLES.chartDom} />
-                    {(chartLoading || chartProductList.length < 2) && <div style={STYLES.placeholder}>{chartLoading ? '加载中' : '至少2个对象显示超额收益'}</div>}
                 </div>
+            )}
+
+            <div style={STYLES.chartGrid}>
+                <div style={STYLES.chartContainer}><div ref={netValueChartRef} style={STYLES.chartDom} />{(chartLoading || chartError || !chartProductList.length) && <div style={STYLES.placeholder}>{chartLoading ? '加载中' : chartError || '无数据'}</div>}</div>
+                <div style={STYLES.chartContainer}><div ref={returnChartRef} style={STYLES.chartDom} />{(chartLoading || chartError || !chartProductList.length) && <div style={STYLES.placeholder}>{chartLoading ? '加载中' : chartError || '无数据'}</div>}</div>
+                <div style={STYLES.chartContainer}><div ref={drawdownChartRef} style={STYLES.chartDom} />{(chartLoading || chartError || !chartProductList.length) && <div style={STYLES.placeholder}>{chartLoading ? '加载中' : chartError || '无数据'}</div>}</div>
+                <div style={STYLES.chartContainer}><div ref={corrChartRef} style={STYLES.chartDom} />{(chartLoading || chartProductList.length < 2) && <div style={STYLES.placeholder}>{chartLoading ? '加载中' : '至少2个产品显示矩阵'}</div>}</div>
             </div>
 
             {/* 指标表格 */}
