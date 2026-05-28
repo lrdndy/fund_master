@@ -66,6 +66,7 @@ export default function HomePage() {
   });
 
   // 进入页面时恢复上次筛选（mount 后读，避免 SSR hydration mismatch）
+  const [filtersRestored, setFiltersRestored] = useState(false);
   useEffect(() => {
     const saved = localStorage.getItem('home_product_filters');
     if (saved) {
@@ -74,13 +75,16 @@ export default function HomePage() {
         setFilters(prev => ({ ...prev, ...parsed }));
       } catch { /* ignore */ }
     }
+    // 标记恢复完成；与 setFilters 同批生效，下一轮 render 后才允许持久化
+    setFiltersRestored(true);
     // eslint-disable-next-line react-hooks/set-state-in-effect
   }, []);
 
-  // 筛选变化时持久化
+  // 筛选变化时持久化；恢复完成前不写，避免用默认空值覆盖上次保存
   useEffect(() => {
+    if (!filtersRestored) return;
     localStorage.setItem('home_product_filters', JSON.stringify(filters));
-  }, [filters]);
+  }, [filters, filtersRestored]);
 
   // 加载所有标签数据
   useEffect(() => {
