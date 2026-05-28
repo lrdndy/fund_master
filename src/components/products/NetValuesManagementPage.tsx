@@ -277,12 +277,12 @@ export default function NetValuesManagementPage() {
                 if (cIds) try { comps = prods.filter(p => JSON.parse(cIds).includes(p.id)); } catch {}
 
                 // 篮子预填：仅在两个 key 都没存（即用户从未在本页主动选过）时生效；
-                // 多选篮子时用 combinedProductIds 合并后预填
+                // 多选篮子合并的产品全部进入'对比'区，不预占基准位
                 if (!bId && !cIds && combinedProductIds.length > 0) {
                     const basketProds = prods.filter(p => combinedProductIds.includes(p.id));
                     if (basketProds.length > 0) {
-                        bench = basketProds[0];
-                        comps = basketProds.slice(1);
+                        bench = null;
+                        comps = basketProds;
                     }
                 }
 
@@ -717,17 +717,14 @@ export default function NetValuesManagementPage() {
         setSelectedIndexIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
     const clearIndexes = () => setSelectedIndexIds([]);
 
-    // 应用篮子（多选合并后的产品/基准）：替换当前已选；之后用户仍可继续追加非篮子对象
+    // 应用篮子（多选合并后的产品/基准）：默认不预选基准，篮子里的产品全部放进'对比产品'，
+    // 让用户在 UI 里自行决定谁作基准；篮子里的指数全部进入对比基准指数；
+    // 之后用户仍可继续追加非篮子的对象
     const applyBasket = () => {
         if (combinedProductIds.length === 0 && combinedIndexIds.length === 0) return;
         const basketProds = filteredProducts.filter(p => combinedProductIds.includes(p.id));
-        if (basketProds.length > 0) {
-            setSelectedBenchmark(basketProds[0]);
-            setSelectedCompares(basketProds.slice(1));
-        } else {
-            setSelectedBenchmark(null);
-            setSelectedCompares([]);
-        }
+        setSelectedBenchmark(null);
+        setSelectedCompares(basketProds);
         const validIdx = benchmarks.map(b => b.id);
         setSelectedIndexIds(combinedIndexIds.filter(id => validIdx.includes(id)));
     };
@@ -864,7 +861,9 @@ export default function NetValuesManagementPage() {
                                             style={{
                                                 ...STYLES.productListItem,
                                                 ...(isB || isC ? STYLES.productListItemActive : {}),
-                                                ...(inBasket && !isB && !isC ? { background: '#fffbeb', borderLeft: '3px solid #f59e0b', paddingLeft: 9 } : {}),
+                                                // 用 inset boxShadow 模拟左条，避免与 STYLES.productListItem 的
+                                                // borderStyle/borderWidth 简写/非简写冲突（React 警告）
+                                                ...(inBasket && !isB && !isC ? { background: '#fffbeb', boxShadow: 'inset 3px 0 0 0 #f59e0b' } : {}),
                                             }}
                                         >
                                             <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>

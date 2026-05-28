@@ -1,5 +1,7 @@
-import { Product } from '@/lib/types';
-import { useRouter } from 'next/navigation';
+'use client';
+import { Product, CustomTag } from '@/lib/types';
+import { useState } from 'react';
+import TagAssignModal from './TagAssignModal';
 
 interface ProductListProps {
     products: Product[];
@@ -9,11 +11,15 @@ interface ProductListProps {
     onOrderingChange?: (ordering: string) => void;
     /** 在篮子里的产品 ID，行会加左侧蓝条 + 浅蓝背景做视觉标记 */
     highlightIds?: number[];
+    /** 给标签 modal 用的全量标签字典 */
+    customTags?: CustomTag[];
+    /** 标签更新后，让父组件刷新产品列表 */
+    onProductUpdated?: () => void;
 }
 
-export default function ProductList({ products, ordering = '', onOrderingChange, highlightIds }: ProductListProps) {
-    const router = useRouter();
+export default function ProductList({ products, ordering = '', onOrderingChange, highlightIds, customTags = [], onProductUpdated }: ProductListProps) {
     const highlightSet = new Set(highlightIds ?? []);
+    const [tagEditing, setTagEditing] = useState<Product | null>(null);
 
     // 三态切换：none -> desc -> asc -> none
     const cycleReturn1mOrdering = () => {
@@ -25,8 +31,11 @@ export default function ProductList({ products, ordering = '', onOrderingChange,
     const return1mArrow =
         ordering === '-return_1m' ? '↓' : ordering === 'return_1m' ? '↑' : '⇅';
 
-    const handleViewDetail = (productId: number) => {
-        router.push(`/products/${productId}`);
+    // 行点击：新窗口打开，避免主页面回退后丢失搜索/筛选
+    const handleViewDetail = (productId: number, e: React.MouseEvent) => {
+        // Cmd/Ctrl-click 浏览器原生新窗口；普通点击我们也用 window.open 走新窗口
+        e.preventDefault();
+        window.open(`/products/${productId}`, '_blank', 'noopener,noreferrer');
     };
 
     const formatScore = (score: number | string | null | undefined): string => {
@@ -55,7 +64,6 @@ export default function ProductList({ products, ordering = '', onOrderingChange,
                 <thead className="text-xs text-gray-700 uppercase bg-gray-100">
                 <tr>
                     <th className="px-6 py-3 rounded-l-lg">产品名称 / 代码</th>
-                    {/* 🔥 产品描述列加宽，去掉操作栏后空间更充足 */}
                     <th className="px-6 py-3 max-w-[350px]">产品描述</th>
                     <th className="px-6 py-3">周期标签</th>
                     <th className="px-6 py-3">量化类型</th>
@@ -70,7 +78,8 @@ export default function ProductList({ products, ordering = '', onOrderingChange,
                     >
                         近一月收益率 <span className={ordering.includes('return_1m') ? 'text-blue-600' : 'text-gray-400'}>{return1mArrow}</span>
                     </th>
-                    <th className="px-6 py-3 rounded-r-lg">打分</th>
+                    <th className="px-6 py-3">打分</th>
+                    <th className="px-6 py-3 rounded-r-lg">操作</th>
                 </tr>
                 </thead>
                 <tbody>
@@ -81,7 +90,7 @@ export default function ProductList({ products, ordering = '', onOrderingChange,
                         <tr
                             key={product.id}
                             className={`border-b cursor-pointer ${inBasket ? 'bg-blue-50/60 hover:bg-blue-100/70 shadow-[inset_3px_0_0_0_#3b82f6]' : 'bg-white hover:bg-gray-50'}`}
-                            onClick={() => handleViewDetail(product.id)}
+                            onClick={(e) => handleViewDetail(product.id, e)}
                         >
                             <td className="px-6 py-4">
                                 <div className="font-medium text-gray-800 flex items-center gap-1.5">
@@ -90,7 +99,6 @@ export default function ProductList({ products, ordering = '', onOrderingChange,
                                 </div>
                                 <div className="text-xs text-gray-500 mt-0.5">{product.product_code}</div>
                             </td>
-                            {/* 🔥 产品描述列加宽到 350px，展示更舒适 */}
                             <td className="px-6 py-4 max-w-[350px] whitespace-normal break-words text-gray-600">
                                 {formatDesc(product.product_desc)}
                             </td>
@@ -117,11 +125,32 @@ export default function ProductList({ products, ordering = '', onOrderingChange,
                             </td>
                             <td className={`px-6 py-4 font-medium ${ret.cls}`}>{ret.text}</td>
                             <td className="px-6 py-4">{formatScore(product.score)}</td>
+                            <td className="px-6 py-4">
+                                <button
+                                    onClick={(e) => { e.stopPropagation(); setTagEditing(product); }}
+                                    className="text-xs px-2 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 whitespace-nowrap"
+                                    title="无需进入详情页，直接给该产品打/移除自定义标签"
+                                >
+                                    + 标签
+                                </button>
+                            </td>
                         </tr>
                     );
                 })}
                 </tbody>
             </table>
+
+            {tagEditing && (
+                <TagAssignModal
+                    product={tagEditing}
+                    allTags={customTags}
+                    onClose={() => setTagEditing(null)}
+                    onSaved={() => {
+                        setTagEditing(null);
+                        onProductUpdated?.();
+                    }}
+                />
+            )}
         </div>
     );
 }
