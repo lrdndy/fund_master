@@ -28,9 +28,11 @@ export default function HomePage() {
   const router = useRouter();
   const { currentBaskets, combinedProductIds } = useBasket();
   const [products, setProducts] = useState<Product[]>([]);
+  // 篮子产品的完整 detail（独立 API 调用，绕开当前分页限制；置顶/只看/高亮都用这个 cache）
+  const [basketProducts, setBasketProducts] = useState<Product[]>([]);
   // 是否只看篮子里的产品（filter）
   const [filterByBasket, setFilterByBasket] = useState(false);
-  // 是否把篮子里的产品置顶（sort，与 filter 互斥意义上无冲突）
+  // 是否把篮子里的产品置顶（前置；篮筐外产品保持原顺序）
   const [pinBasket, setPinBasket] = useState(false);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -126,6 +128,25 @@ export default function HomePage() {
     const timer = setTimeout(loadProducts, 300);
     return () => clearTimeout(timer);
   }, [filters, page, pageSize]);
+
+  // 当前选中篮子的产品 detail：绕过普通列表分页，按 ID 直接拉。
+  // 这样无论篮筐产品在不在当前页，置顶/只看/高亮都能正常工作。
+  const basketIdsKey = combinedProductIds.join(',');
+  useEffect(() => {
+    if (!basketIdsKey) {
+      setBasketProducts([]);
+      return;
+    }
+    void (async () => {
+      try {
+        const res = await productApi.getProducts({ ids: basketIdsKey, page_size: '2000' });
+        setBasketProducts(res.results ?? []);
+      } catch (err) {
+        console.error('拉篮子产品失败', err);
+        setBasketProducts([]);
+      }
+    })();
+  }, [basketIdsKey]);
 
   // 筛选变更（重置到第一页）
   const handleFilterChange = (newFilters: Partial<ProductFilterParams>) => {
@@ -223,21 +244,27 @@ export default function HomePage() {
           ) : (
               <>
                 <ProductList
+                    highlightIds={combinedProductIds}
                     products={(() => {
-                        let list = products;
+                        // 只看篮子产品：直接用独立拉的 basketProducts cache
                         if (filterByBasket && combinedProductIds.length > 0) {
-                            list = list.filter(p => combinedProductIds.includes(p.id));
-                        }
-                        if (pinBasket && combinedProductIds.length > 0) {
-                            // 篮子内的按 combinedProductIds 顺序排在最前，其它产品保持原顺序
                             const idx = new Map(combinedProductIds.map((id, i) => [id, i]));
-                            list = [...list].sort((a, b) => {
-                                const ai = idx.has(a.id) ? idx.get(a.id)! : Infinity;
-                                const bi = idx.has(b.id) ? idx.get(b.id)! : Infinity;
-                                return ai - bi;
-                            });
+                            return [...basketProducts].sort(
+                                (a, b) => (idx.get(a.id) ?? Infinity) - (idx.get(b.id) ?? Infinity),
+                            );
                         }
-                        return list;
+                        // 置顶：把 basketProducts 拼到当前页的前面 + 当前页里去掉重复的
+                        if (pinBasket && combinedProductIds.length > 0 && basketProducts.length > 0) {
+                            const basketSet = new Set(basketProducts.map(p => p.id));
+                            const idx = new Map(combinedProductIds.map((id, i) => [id, i]));
+                            const sortedBasket = [...basketProducts].sort(
+                                (a, b) => (idx.get(a.id) ?? Infinity) - (idx.get(b.id) ?? Infinity),
+                            );
+                            const others = products.filter(p => !basketSet.has(p.id));
+                            return [...sortedBasket, ...others];
+                        }
+                        // 默认：原列表，行内通过 highlightIds 加阴影标记
+                        return products;
                     })()}
                     ordering={filters.ordering ?? ''}
                     onOrderingChange={(ordering) => handleFilterChange({ ordering })}

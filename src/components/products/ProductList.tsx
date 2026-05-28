@@ -7,10 +7,13 @@ interface ProductListProps {
     ordering?: string;
     /** 点击列头切换排序时回调；不传则列头不可点 */
     onOrderingChange?: (ordering: string) => void;
+    /** 在篮子里的产品 ID，行会加左侧蓝条 + 浅蓝背景做视觉标记 */
+    highlightIds?: number[];
 }
 
-export default function ProductList({ products, ordering = '', onOrderingChange }: ProductListProps) {
+export default function ProductList({ products, ordering = '', onOrderingChange, highlightIds }: ProductListProps) {
     const router = useRouter();
+    const highlightSet = new Set(highlightIds ?? []);
 
     // 三态切换：none -> desc -> asc -> none
     const cycleReturn1mOrdering = () => {
@@ -73,14 +76,18 @@ export default function ProductList({ products, ordering = '', onOrderingChange 
                 <tbody>
                 {products.map((product) => {
                     const ret = formatReturn(product.return_1m);
+                    const inBasket = highlightSet.has(product.id);
                     return (
                         <tr
                             key={product.id}
-                            className="bg-white border-b hover:bg-gray-50 cursor-pointer"
+                            className={`border-b cursor-pointer ${inBasket ? 'bg-blue-50/60 hover:bg-blue-100/70 shadow-[inset_3px_0_0_0_#3b82f6]' : 'bg-white hover:bg-gray-50'}`}
                             onClick={() => handleViewDetail(product.id)}
                         >
                             <td className="px-6 py-4">
-                                <div className="font-medium text-gray-800">{product.product_name}</div>
+                                <div className="font-medium text-gray-800 flex items-center gap-1.5">
+                                    {product.product_name}
+                                    {inBasket && <span title="该产品在当前选中的篮子里" className="text-[10px] text-blue-600 px-1.5 py-0.5 bg-blue-100 rounded">🧺</span>}
+                                </div>
                                 <div className="text-xs text-gray-500 mt-0.5">{product.product_code}</div>
                             </td>
                             {/* 🔥 产品描述列加宽到 350px，展示更舒适 */}

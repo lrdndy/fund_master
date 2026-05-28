@@ -74,8 +74,9 @@ export default function CorrelationBoard() {
         const initPage = async () => {
             try {
                 setLoading(true);
-                // 1. 加载所有产品
-                const res: ApiResponse<Product> = await productApi.getProducts({ is_valid: 'true' });
+                // 1. 加载所有产品：page_size=2000 一次拉全，避免分页限制下应用篮子时
+                //    篮子里的产品不在 allProducts 而被丢掉（getProductName 也会找不到名字）
+                const res: ApiResponse<Product> = await productApi.getProducts({ is_valid: 'true', page_size: '2000' });
                 const products = res.results || [];
                 setAllProducts(products);
                 setFilteredProducts(products);
@@ -151,7 +152,7 @@ export default function CorrelationBoard() {
                 if (filters.custom) params.custom = filters.custom; // 🔥 新增
                 if (filters.search) params.search = filters.search;
 
-                const res: ApiResponse<Product> = await productApi.getProducts(params);
+                const res: ApiResponse<Product> = await productApi.getProducts({ ...params, page_size: '2000' });
                 const products = res.results || [];
                 // 🔥 只更新筛选后的列表，已选产品ID完全不动！
                 setFilteredProducts(products);
@@ -184,11 +185,11 @@ export default function CorrelationBoard() {
     };
     const clearIndexes = () => setSelectedIndexIds([]);
 
-    // 应用篮子（多选合并后的产品/基准）：替换当前已选
+    // 应用篮子（多选合并后的产品/基准）：替换当前已选；不再用 allProducts 做合法性过滤
+    // —— 即便篮子产品因为分页/筛选不在 allProducts 里也直接选上；getProductName fallback 显 ID
     const applyBasket = () => {
         if (combinedProductIds.length === 0 && combinedIndexIds.length === 0) return;
-        const valid = allProducts.map(p => p.id);
-        setSelectedProductIds(combinedProductIds.filter(id => valid.includes(id)));
+        setSelectedProductIds(combinedProductIds);
         setSelectedIndexIds(combinedIndexIds);
     };
 
@@ -631,16 +632,22 @@ export default function CorrelationBoard() {
                         <div className="space-y-1.5 overflow-y-auto max-h-[400px] pr-1 custom-scrollbar">
                             {filteredProducts.map(product => {
                                 const isSelected = selectedProductIds.includes(product.id);
+                                const inBasket = combinedProductIds.includes(product.id);
                                 return (
                                     <div
                                         key={product.id}
                                         className={`p-3.5 border rounded-lg flex justify-between items-center transition-all duration-200 hover:bg-slate-50 ${
                                             isSelected
                                                 ? 'bg-blue-50 border-blue-200 shadow-sm'
-                                                : 'bg-white border-slate-100 hover:border-slate-200'
+                                                : inBasket
+                                                    ? 'bg-amber-50/60 border-amber-200'
+                                                    : 'bg-white border-slate-100 hover:border-slate-200'
                                         }`}
                                     >
-                                        <span className="text-slate-800 font-medium">{product.product_name}</span>
+                                        <span className="text-slate-800 font-medium flex items-center gap-1.5">
+                                            {product.product_name}
+                                            {inBasket && <span title="该产品在当前选中的篮子里" className="text-[10px] text-amber-700 px-1.5 py-0.5 bg-amber-100 rounded">🧺</span>}
+                                        </span>
                                         <button
                                             onClick={() => handleToggleProduct(product.id)}
                                             className={`px-4 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 ${
