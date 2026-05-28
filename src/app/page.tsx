@@ -36,6 +36,7 @@ export default function HomePage() {
   const [pinBasket, setPinBasket] = useState(false);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [reloadCounter, setReloadCounter] = useState(0); // 子组件改了产品（如打标签）后 +1 触发重拉
 
   // 分页状态
   const [page, setPage] = useState<number>(1);
@@ -127,7 +128,7 @@ export default function HomePage() {
 
     const timer = setTimeout(loadProducts, 300);
     return () => clearTimeout(timer);
-  }, [filters, page, pageSize]);
+  }, [filters, page, pageSize, reloadCounter]);
 
   // 当前选中篮子的产品 detail：绕过普通列表分页，按 ID 直接拉。
   // 这样无论篮筐产品在不在当前页，置顶/只看/高亮都能正常工作。
@@ -268,6 +269,8 @@ export default function HomePage() {
                     })()}
                     ordering={filters.ordering ?? ''}
                     onOrderingChange={(ordering) => handleFilterChange({ ordering })}
+                    customTags={tags.customTags}
+                    onProductUpdated={() => setReloadCounter(c => c + 1)}
                 />
 
                 {/* 分页控件 */}
