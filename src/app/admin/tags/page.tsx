@@ -30,7 +30,7 @@ const getErrorMessage = (err: unknown): string => {
 };
 
 export default function AdminTagManager() {
-    const [activeTagType, setActiveTagType] = useState<TagType>('cycle');
+    const [activeTagType, setActiveTagType] = useState<TagType>('custom');
     const [tags, setTags] = useState<{
         cycles: CycleTag[];
         quants: QuantType[];
@@ -369,12 +369,12 @@ export default function AdminTagManager() {
                 <div className="flex flex-wrap items-center justify-between gap-4">
                     <div className="flex flex-wrap gap-2">
                         {[
+                            { key: 'custom', label: '自定义标签', icon: '✨' },
                             { key: 'cycle', label: '周期标签', icon: '📅' },
                             { key: 'quant', label: '量化类型', icon: '📊' },
                             { key: 'algorithm', label: '算法类型', icon: '🔧' },
                             { key: 'strategy', label: '策略类型', icon: '🎯' },
                             { key: 'fof', label: 'FOF归属', icon: '🏷️' },
-                            { key: 'custom', label: '自定义标签', icon: '✨' },
                         ].map(item => (
                             <button
                                 key={item.key}
