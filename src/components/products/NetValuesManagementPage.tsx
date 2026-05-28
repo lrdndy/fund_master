@@ -264,8 +264,9 @@ export default function NetValuesManagementPage() {
         initedRef.current = true;
         const initProducts = async () => {
             try {
-                // 一次拉全库（page_size=2000），保证篮子里的产品总在候选列表里
-                const res = await productApi.getProducts({ page_size: '2000' });
+                // 一次拉全库（page_size=2000）作产品选择器；用 lite=1 走精简序列化器
+                // （无 return_1m / 标签嵌套），避免后端 N+1，payload 也小很多
+                const res = await productApi.getProducts({ page_size: '2000', lite: '1' });
                 const prods = res.results ?? [];
                 setFilteredProducts(prods);
                 if (!prods.length) return;
@@ -303,6 +304,7 @@ export default function NetValuesManagementPage() {
             try {
                 const params = Object.fromEntries(Object.entries(filters).filter(([, v]) => v)) as Record<string, string>;
                 params.page_size = '2000'; // 让 picker 看到全库；否则默认 20 条会让篮子产品不在列表里
+                params.lite = '1';          // 精简序列化，避免 return_1m 的 N+1
                 const res = await productApi.getProducts(params);
                 setFilteredProducts(res.results ?? []);
                 setProductError(null);
