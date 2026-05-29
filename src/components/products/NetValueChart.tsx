@@ -17,6 +17,8 @@ interface NetValueChartProps {
     loading?: boolean;
     /** true 时所有 series 归一化到起点 = 1.0，便于不同量级数据（净值 vs 指数点位）直接对比 */
     normalize?: boolean;
+    /** 指定某条 series 的 name 作基准后，其它 series 叠加'相对它的超额收益'到次坐标轴（虚线）；需配合 normalize */
+    excessBaseName?: string;
 }
 
 interface ChartTooltipParam {
@@ -56,6 +58,7 @@ export default function NetValueChart({
     title,
     loading = false,
     normalize = false,
+    excessBaseName,
 }: NetValueChartProps) {
     const chartRef = useRef<HTMLDivElement>(null);
     const chartInstance = useRef<echarts.ECharts | null>(null);
@@ -108,6 +111,35 @@ export default function NetValueChart({
                 : {}),
         }));
 
+        // 超额收益叠加：base series 归一化后，其它 series 在共同日期算 (s - base)*100 (%)，走次坐标轴
+        let hasExcess = false;
+        if (excessBaseName && normalize) {
+            const base = prepared.find(s => s.name === excessBaseName);
+            if (base) {
+                const baseMap = new Map(base.points.map(p => [p.date, p.value]));
+                prepared
+                    .filter(s => s.name !== excessBaseName)
+                    .forEach((s, idx) => {
+                        const data = s.points
+                            .filter(p => baseMap.has(p.date))
+                            .map(p => [p.date, parseFloat(((p.value - baseMap.get(p.date)!) * 100).toFixed(2))] as [string, number]);
+                        if (data.length === 0) return;
+                        hasExcess = true;
+                        const color = s.color ?? DEFAULT_COLORS[idx % DEFAULT_COLORS.length];
+                        echartsSeries.push({
+                            name: `${s.name} 超额`,
+                            type: 'line',
+                            yAxisIndex: 1,
+                            data,
+                            smooth: true,
+                            showSymbol: false,
+                            lineStyle: { color, width: 1.5, type: 'dashed' },
+                            itemStyle: { color },
+                        } as EChartOption.SeriesLine);
+                    });
+            }
+        }
+
         const valueDigits = normalize ? 4 : 3;
 
         const option: EChartOption = {
@@ -131,33 +163,50 @@ export default function NetValueChart({
                     const axisLabel = arr[0].axisValueLabel ?? arr[0].name ?? '';
                     const lines = arr.map(p => {
                         const val = Array.isArray(p.value) ? p.value[1] : Number(p.value);
-                        const valStr = Number.isFinite(val) ? Number(val).toFixed(valueDigits) : '—';
+                        const isExcess = (p.seriesName ?? '').includes('超额');
+                        const valStr = Number.isFinite(val)
+                            ? (isExcess ? `${val > 0 ? '+' : ''}${Number(val).toFixed(2)}%` : Number(val).toFixed(valueDigits))
+                            : '—';
                         return `${p.marker ?? ''}${p.seriesName}：${valStr}`;
                     });
                     return [axisLabel, ...lines].join('<br/>');
                 },
             },
-            grid: { left: '8%', right: '5%', bottom: '12%', top: prepared.length > 1 ? '20%' : '15%', containLabel: true },
+            grid: { left: '8%', right: hasExcess ? '8%' : '5%', bottom: '12%', top: prepared.length > 1 ? '20%' : '15%', containLabel: true },
             xAxis: {
                 type: 'time',
                 axisLabel: { color: '#64748b', fontSize: 11 },
                 axisLine: { lineStyle: { color: '#e2e8f0' } },
                 splitLine: { show: false },
             },
-            yAxis: {
-                type: 'value',
-                scale: true,
-                axisLabel: { color: '#64748b', fontSize: 11, formatter: (v: number) => v.toFixed(valueDigits) },
-                axisLine: { lineStyle: { color: '#e2e8f0' } },
-                splitLine: { lineStyle: { color: '#f1f5f9' } },
-            },
+            yAxis: (hasExcess
+                ? [
+                    {
+                        type: 'value', scale: true,
+                        axisLabel: { color: '#64748b', fontSize: 11, formatter: (v: number) => v.toFixed(valueDigits) },
+                        axisLine: { lineStyle: { color: '#e2e8f0' } },
+                        splitLine: { lineStyle: { color: '#f1f5f9' } },
+                    },
+                    {
+                        type: 'value', scale: true, name: '超额%', position: 'right',
+                        axisLabel: { color: '#94a3b8', fontSize: 11, formatter: (v: number) => v.toFixed(1) },
+                        axisLine: { lineStyle: { color: '#e2e8f0' } },
+                        splitLine: { show: false },
+                    },
+                ]
+                : {
+                    type: 'value', scale: true,
+                    axisLabel: { color: '#64748b', fontSize: 11, formatter: (v: number) => v.toFixed(valueDigits) },
+                    axisLine: { lineStyle: { color: '#e2e8f0' } },
+                    splitLine: { lineStyle: { color: '#f1f5f9' } },
+                }) as EChartOption.YAxis | EChartOption.YAxis[],
             series: echartsSeries,
             animationDuration: 800,
             animationEasingUpdate: 'quinticInOut',
         };
 
         chartInstance.current.setOption(option, true);
-    }, [series, title, loading, normalize]);
+    }, [series, title, loading, normalize, excessBaseName]);
 
     if (loading) {
         return (

@@ -83,6 +83,9 @@ export default function ProductDetailClient({ initialProductId }: ProductDetailC
     const [selectedBenchmarkIds, setSelectedBenchmarkIds] = useState<number[]>([]);
     const [benchmarkSeriesMap, setBenchmarkSeriesMap] = useState<Record<number, BenchmarkNetValuePoint[]>>({});
     const [benchmarkLoading, setBenchmarkLoading] = useState(false);
+    // 超额收益叠加：在净值曲线图叠加'产品相对某基准的超额'（次坐标轴虚线）
+    const [showExcess, setShowExcess] = useState(false);
+    const [excessBenchmarkId, setExcessBenchmarkId] = useState<number | null>(null);
 
     // 辅助：从 CustomTag[] 提取 ID 数组
     const getTagIds = (tags?: CustomTag[]): number[] => {
@@ -473,6 +476,13 @@ export default function ProductDetailClient({ initialProductId }: ProductDetailC
         });
 
     const hasBenchmark = selectedBenchmarkIds.length > 0;
+
+    // 超额基准：默认第一个选中的基准；excessBaseName 对应它在 chartSeries 里的名字
+    const excessBaseId = excessBenchmarkId ?? selectedBenchmarkIds[0] ?? null;
+    const excessBaseIdx = excessBaseId != null ? benchmarks.find(b => b.id === excessBaseId) : undefined;
+    const excessBaseName = excessBaseIdx
+        ? (excessBaseIdx.index_short_name || excessBaseIdx.index_name || `基准#${excessBaseId}`)
+        : undefined;
 
     return (
         <div className="space-y-8 py-4">
@@ -868,12 +878,37 @@ export default function ProductDetailClient({ initialProductId }: ProductDetailC
                     )}
                 </div>
 
+                {hasBenchmark && (
+                    <div className="flex items-center flex-wrap gap-2 mb-2 text-sm">
+                        <label className="flex items-center gap-1.5 text-gray-700 cursor-pointer">
+                            <input type="checkbox" checked={showExcess} onChange={e => setShowExcess(e.target.checked)} />
+                            叠加超额收益（产品相对基准，次坐标轴虚线）
+                        </label>
+                        {showExcess && selectedBenchmarkIds.length > 1 && (
+                            <span className="flex items-center gap-1.5">
+                                <span className="text-xs text-gray-500">基准</span>
+                                <select
+                                    value={excessBaseId ?? ''}
+                                    onChange={e => setExcessBenchmarkId(e.target.value ? Number(e.target.value) : null)}
+                                    className="px-2 py-1 border border-gray-300 rounded text-xs bg-white"
+                                >
+                                    {selectedBenchmarkIds.filter(id => benchmarkSeriesMap[id]).map(id => {
+                                        const idx = benchmarks.find(b => b.id === id);
+                                        return <option key={id} value={id}>{idx?.index_short_name || idx?.index_name || `基准#${id}`}</option>;
+                                    })}
+                                </select>
+                            </span>
+                        )}
+                    </div>
+                )}
+
                 <NetValueChart
                     key={refreshKey}
                     series={chartSeries}
                     title={`${product.product_name}${hasBenchmark ? ' vs 基准' : ' - 累计净值曲线'}`}
                     loading={false}
                     normalize={hasBenchmark}
+                    excessBaseName={showExcess && hasBenchmark ? excessBaseName : undefined}
                 />
             </div>
 
