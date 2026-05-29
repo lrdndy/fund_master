@@ -78,6 +78,7 @@ export default function ProductList({ products, ordering = '', onOrderingChange,
                     >
                         近一月收益率 <span className={ordering.includes('return_1m') ? 'text-blue-600' : 'text-gray-400'}>{return1mArrow}</span>
                     </th>
+                    <th className="px-6 py-3">最新净值日期</th>
                     <th className="px-6 py-3 rounded-r-lg">打分</th>
                 </tr>
                 </thead>
@@ -135,6 +136,7 @@ export default function ProductList({ products, ordering = '', onOrderingChange,
                                 </div>
                             </td>
                             <td className={`px-6 py-4 font-medium ${ret.cls}`}>{ret.text}</td>
+                            <td className="px-6 py-4 text-gray-600 whitespace-nowrap">{product.latest_nv_date ?? '—'}</td>
                             <td className="px-6 py-4">{formatScore(product.score)}</td>
                         </tr>
                     );

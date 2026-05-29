@@ -98,6 +98,7 @@ export interface Product {
     custom_tags?: CustomTag[];
     custom_tag_ids?: number[];
     return_1m?: number | null;
+    latest_nv_date?: string | null;
     score: number | string;
     product_desc: string | null;
     is_valid: boolean;
