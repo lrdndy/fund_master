@@ -304,7 +304,6 @@ export default function BenchmarkDetailPage() {
                     <Field label="交易所" value={info?.exchange ? `${info.exchange} - ${EXCHANGE_LABEL[info.exchange] ?? ''}` : '—'} />
                     <Field label="净值数据点" value={`${netValues.length} 条`} />
                     <Field label="时间范围" value={netValues.length ? `${netValues[0].net_value_date} ~ ${netValues[netValues.length - 1].net_value_date}` : '—'} />
-                    <Field label="东财 secid" value={info?.em_secid_override || '（自动推断）'} mono />
                     <Field label="tushare ts_code" value={info?.ts_code || '—'} mono />
                     <Field label="创建时间" value={info?.create_time?.slice(0, 19).replace('T', ' ') ?? '—'} />
                     <Field label="更新时间" value={info?.update_time?.slice(0, 19).replace('T', ' ') ?? '—'} />

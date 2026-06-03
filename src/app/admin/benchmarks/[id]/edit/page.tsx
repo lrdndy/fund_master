@@ -46,7 +46,7 @@ export default function EditBenchmarkPage() {
                         index_name: data.index_name,
                         index_short_name: data.index_short_name ?? '',
                         exchange: (data.exchange as BenchmarkExchange | null) ?? '',
-                        em_secid_override: data.em_secid_override ?? '',
+                        ts_code_override: data.ts_code_override ?? '',
                         is_valid: data.is_valid,
                     }}
                     onCancel={() => router.push('/admin/benchmarks')}

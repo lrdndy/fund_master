@@ -131,7 +131,6 @@ export interface BenchmarkIndex {
     index_name: string;
     index_short_name?: string | null;
     exchange?: string | null;
-    em_secid_override?: string | null;
     ts_code_override?: string | null;
     /** 后端 read-only：当前实际生效的 tushare ts_code（推断 or override） */
     ts_code?: string | null;
@@ -147,7 +146,6 @@ export interface BenchmarkIndexInput {
     index_name: string;
     index_short_name?: string;
     exchange?: BenchmarkExchange | '';
-    em_secid_override?: string;
     ts_code_override?: string;
     is_valid?: boolean;
 }
