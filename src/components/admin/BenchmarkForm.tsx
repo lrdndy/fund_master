@@ -134,10 +134,13 @@ export default function BenchmarkForm({ initial, submitLabel, onSubmit, onCancel
                         type="text"
                         value={values.ts_code_override ?? ''}
                         onChange={e => set('ts_code_override', e.target.value)}
-                        placeholder="如 000300.SH / 399300.SZ / 801010.SI；留空按 index_code 前缀自动推断"
+                        placeholder="如 000300.SH（沪深300） / 399001.SZ（深证成指） / 801010.SI（申万一级） / 932000.CSI（中证微盘）"
                         className="w-full px-3 py-2 border border-gray-300 rounded text-sm font-mono"
                     />
-                    <p className="text-xs text-gray-500 mt-1">tushare 对同一指数可能有多种 ts_code（如沪深300=000300.SH 也可=399300.SZ），自动推断不一定对，建议手动填</p>
+                    <p className="text-xs text-gray-500 mt-1">
+                        留空按 index_code 前缀自动推断：000xxx→.SH（沪市/沪深 000300）、399xxx→.SZ（深市 399001 深证成指 / 399006 创业板指）、932xxx→.CSI（中证自编）、801xxx→.SI（申万）。
+                        跨市场指数（如沪深300 也有 399300.SZ 镜像）建议手动填官方主版本。
+                    </p>
                 </div>
                 {showIsValid && (
                     <div className="md:col-span-2">
