@@ -132,6 +132,9 @@ export interface BenchmarkIndex {
     index_short_name?: string | null;
     exchange?: string | null;
     em_secid_override?: string | null;
+    ts_code_override?: string | null;
+    /** 后端 read-only：当前实际生效的 tushare ts_code（推断 or override） */
+    ts_code?: string | null;
     is_valid: boolean;
     create_time?: string;
     update_time?: string;
@@ -145,6 +148,7 @@ export interface BenchmarkIndexInput {
     index_short_name?: string;
     exchange?: BenchmarkExchange | '';
     em_secid_override?: string;
+    ts_code_override?: string;
     is_valid?: boolean;
 }
 
@@ -153,6 +157,13 @@ export interface BenchmarkCsvImportResponse {
     message: string;
     summary?: { total: number; success: number; failed: number; created: number; updated: number };
     failed_records?: Array<{ row_num: number; data: Record<string, string>; reason: string }>;
+}
+
+export interface BenchmarkFetchTushareResponse {
+    code: number;
+    message: string;
+    ts_code?: string;
+    summary?: { total: number; created: number; updated: number; skipped: number };
 }
 
 export interface BenchmarkMissingDatesResponse {

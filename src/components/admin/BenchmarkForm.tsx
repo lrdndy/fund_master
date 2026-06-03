@@ -26,6 +26,7 @@ export default function BenchmarkForm({ initial, submitLabel, onSubmit, onCancel
         index_short_name: initial?.index_short_name ?? '',
         exchange: initial?.exchange ?? '',
         em_secid_override: initial?.em_secid_override ?? '',
+        ts_code_override: initial?.ts_code_override ?? '',
         is_valid: initial?.is_valid ?? true,
     });
     const [submitting, setSubmitting] = useState(false);
@@ -48,6 +49,7 @@ export default function BenchmarkForm({ initial, submitLabel, onSubmit, onCancel
                 index_short_name: values.index_short_name?.trim() || undefined,
                 exchange: values.exchange || undefined,
                 em_secid_override: values.em_secid_override?.trim() || undefined,
+                ts_code_override: values.ts_code_override?.trim() || undefined,
                 is_valid: values.is_valid,
             };
             await onSubmit(payload);
@@ -125,6 +127,17 @@ export default function BenchmarkForm({ initial, submitLabel, onSubmit, onCancel
                         className="w-full px-3 py-2 border border-gray-300 rounded text-sm font-mono"
                     />
                     <p className="text-xs text-gray-500 mt-1">仅当自动推断不正确时填写，例如港股或自定义来源</p>
+                </div>
+                <div className="md:col-span-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">tushare ts_code 覆盖</label>
+                    <input
+                        type="text"
+                        value={values.ts_code_override ?? ''}
+                        onChange={e => set('ts_code_override', e.target.value)}
+                        placeholder="如 000300.SH / 399300.SZ / 801010.SI；留空按 index_code 前缀自动推断"
+                        className="w-full px-3 py-2 border border-gray-300 rounded text-sm font-mono"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">tushare 对同一指数可能有多种 ts_code（如沪深300=000300.SH 也可=399300.SZ），自动推断不一定对，建议手动填</p>
                 </div>
                 {showIsValid && (
                     <div className="md:col-span-2">

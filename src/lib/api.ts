@@ -5,7 +5,7 @@ import {
     AlgorithmType, StrategyType, ProductNetValue, ProductCorrelation,
     NetValueApiResponse, CsvImportResponse, SingleNetValueRequest, UserInfo, FofOwnTag, CustomTag,
     BenchmarkIndex, BenchmarkNetValuePoint, BenchmarkIndexInput, BenchmarkCsvImportResponse,
-    BenchmarkMissingDatesResponse, BenchmarkUpsertResponse,
+    BenchmarkMissingDatesResponse, BenchmarkUpsertResponse, BenchmarkFetchTushareResponse,
     Basket, BasketInput
 } from './types';
 
@@ -332,6 +332,20 @@ export const benchmarkApi = {
         const res = await api.get<BenchmarkMissingDatesResponse>(
             `/benchmarks/${indexId}/missing_dates/`,
             { params },
+        );
+        return res.data;
+    },
+    fetchBenchmarkFromTushare: async (
+        indexId: number,
+        startDate?: string,
+        endDate?: string,
+    ): Promise<BenchmarkFetchTushareResponse> => {
+        const body: Record<string, string> = {};
+        if (startDate) body.start_date = startDate;
+        if (endDate) body.end_date = endDate;
+        const res = await api.post<BenchmarkFetchTushareResponse>(
+            `/benchmarks/${indexId}/fetch_tushare/`,
+            body,
         );
         return res.data;
     },
