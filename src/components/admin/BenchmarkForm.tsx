@@ -25,7 +25,7 @@ export default function BenchmarkForm({ initial, submitLabel, onSubmit, onCancel
         index_name: initial?.index_name ?? '',
         index_short_name: initial?.index_short_name ?? '',
         exchange: initial?.exchange ?? '',
-        em_secid_override: initial?.em_secid_override ?? '',
+        ts_code_override: initial?.ts_code_override ?? '',
         is_valid: initial?.is_valid ?? true,
     });
     const [submitting, setSubmitting] = useState(false);
@@ -47,7 +47,7 @@ export default function BenchmarkForm({ initial, submitLabel, onSubmit, onCancel
                 index_name: values.index_name.trim(),
                 index_short_name: values.index_short_name?.trim() || undefined,
                 exchange: values.exchange || undefined,
-                em_secid_override: values.em_secid_override?.trim() || undefined,
+                ts_code_override: values.ts_code_override?.trim() || undefined,
                 is_valid: values.is_valid,
             };
             await onSubmit(payload);
@@ -116,15 +116,17 @@ export default function BenchmarkForm({ initial, submitLabel, onSubmit, onCancel
                     </select>
                 </div>
                 <div className="md:col-span-2">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">东财 secid 覆盖</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">tushare ts_code 覆盖</label>
                     <input
                         type="text"
-                        value={values.em_secid_override ?? ''}
-                        onChange={e => set('em_secid_override', e.target.value)}
-                        placeholder="留空按 交易所+指数代码 自动推断（如 1.000300）"
+                        value={values.ts_code_override ?? ''}
+                        onChange={e => set('ts_code_override', e.target.value)}
+                        placeholder="留空自动推断；如 000300.SH / 399812.SZ / 932000.CSI"
                         className="w-full px-3 py-2 border border-gray-300 rounded text-sm font-mono"
                     />
-                    <p className="text-xs text-gray-500 mt-1">仅当自动推断不正确时填写，例如港股或自定义来源</p>
+                    <p className="text-xs text-gray-500 mt-1">
+                        前缀自动推断：000xxx→.SH、399xxx→.SZ、932xxx→.CSI。其它代码需手动填。
+                    </p>
                 </div>
                 {showIsValid && (
                     <div className="md:col-span-2">

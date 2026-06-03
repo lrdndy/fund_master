@@ -47,6 +47,13 @@ export default function BenchmarkDetailPage() {
     const [missingStart, setMissingStart] = useState<string>('');
     const [missingEnd, setMissingEnd] = useState<string>('');
 
+    // 从 tushare 拉取弹窗
+    const [tushareOpen, setTushareOpen] = useState(false);
+    const [tushareStart, setTushareStart] = useState<string>('');
+    const [tushareEnd, setTushareEnd] = useState<string>('');
+    const [tushareFetching, setTushareFetching] = useState(false);
+    const [tushareResult, setTushareResult] = useState<{ ok: boolean; message: string; summary?: { total: number; created: number; updated: number; skipped: number }; ts_code?: string } | null>(null);
+
     // 图表
     const chartRef = useRef<HTMLDivElement | null>(null);
     const chartInst = useRef<echarts.ECharts | null>(null);
@@ -186,6 +193,38 @@ export default function BenchmarkDetailPage() {
         }
     };
 
+    const openTushare = () => {
+        setTushareResult(null);
+        // 默认起点：当前基准最后一条净值的次日（增量拉），无数据则留空
+        const last = netValues.length ? netValues[netValues.length - 1].net_value_date : '';
+        if (last) {
+            const d = new Date(last);
+            d.setDate(d.getDate() + 1);
+            setTushareStart(d.toISOString().slice(0, 10));
+        } else {
+            setTushareStart('');
+        }
+        setTushareEnd('');
+        setTushareOpen(true);
+    };
+
+    const handleFetchTushare = async () => {
+        setTushareFetching(true);
+        setTushareResult(null);
+        try {
+            const res = await benchmarkApi.fetchBenchmarkFromTushare(id, tushareStart || undefined, tushareEnd || undefined);
+            setTushareResult({ ok: res.code === 200, message: res.message, summary: res.summary, ts_code: res.ts_code });
+            if (res.code === 200) {
+                await Promise.all([loadNetValues(), loadMissing()]);
+            }
+        } catch (e) {
+            const err = e as { response?: { data?: { message?: string } } };
+            setTushareResult({ ok: false, message: err.response?.data?.message ?? '拉取失败' });
+        } finally {
+            setTushareFetching(false);
+        }
+    };
+
     const handleDelete = async (date: string) => {
         if (!confirm(`确认删除 ${date} 的数据？`)) return;
         try {
@@ -237,6 +276,18 @@ export default function BenchmarkDetailPage() {
                             导出 CSV
                         </button>
                         <button
+                            onClick={openTushare}
+                            disabled={info?.exchange === 'MOCK' || !info?.ts_code}
+                            className="px-3 py-1.5 text-sm bg-emerald-600 text-white rounded hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                            title={info?.exchange === 'MOCK'
+                                ? 'MOCK 类型不支持 tushare 拉取'
+                                : !info?.ts_code
+                                    ? '无法推断 ts_code，请先在「编辑信息」里填 ts_code_override'
+                                    : `从 tushare 拉取（ts_code: ${info.ts_code}）`}
+                        >
+                            从 tushare 拉取
+                        </button>
+                        <button
                             onClick={() => {
                                 const today = new Date().toISOString().split('T')[0];
                                 setEditing({ date: today, close: '', isNew: true });
@@ -253,7 +304,7 @@ export default function BenchmarkDetailPage() {
                     <Field label="交易所" value={info?.exchange ? `${info.exchange} - ${EXCHANGE_LABEL[info.exchange] ?? ''}` : '—'} />
                     <Field label="净值数据点" value={`${netValues.length} 条`} />
                     <Field label="时间范围" value={netValues.length ? `${netValues[0].net_value_date} ~ ${netValues[netValues.length - 1].net_value_date}` : '—'} />
-                    <Field label="东财 secid" value={info?.em_secid_override || '（自动推断）'} mono />
+                    <Field label="tushare ts_code" value={info?.ts_code || '—'} mono />
                     <Field label="创建时间" value={info?.create_time?.slice(0, 19).replace('T', ' ') ?? '—'} />
                     <Field label="更新时间" value={info?.update_time?.slice(0, 19).replace('T', ' ') ?? '—'} />
                 </div>
@@ -496,6 +547,56 @@ export default function BenchmarkDetailPage() {
                                 className="px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
                             >
                                 {saving ? '保存中...' : '保存'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* 从 tushare 拉取 modal */}
+            {tushareOpen && (
+                <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={() => !tushareFetching && setTushareOpen(false)}>
+                    <div className="bg-white rounded-lg shadow-xl w-full max-w-md" onClick={e => e.stopPropagation()}>
+                        <div className="p-5 border-b border-gray-200 flex justify-between items-start">
+                            <div>
+                                <h3 className="text-lg font-semibold text-gray-800">从 tushare 拉取日线</h3>
+                                <p className="text-xs text-gray-500 mt-1 font-mono">ts_code: {info?.ts_code ?? '—'}</p>
+                            </div>
+                            <button onClick={() => !tushareFetching && setTushareOpen(false)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+                        </div>
+                        <div className="p-5 space-y-4">
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label className="block text-xs text-gray-600 mb-1">开始日期</label>
+                                    <input type="date" value={tushareStart} onChange={e => setTushareStart(e.target.value)}
+                                        className="w-full px-3 py-2 border border-gray-300 rounded text-sm" />
+                                </div>
+                                <div>
+                                    <label className="block text-xs text-gray-600 mb-1">结束日期</label>
+                                    <input type="date" value={tushareEnd} onChange={e => setTushareEnd(e.target.value)}
+                                        className="w-full px-3 py-2 border border-gray-300 rounded text-sm" />
+                                </div>
+                            </div>
+                            <p className="text-xs text-gray-500">两个日期都留空 = 拉全量历史；默认起点是本基准最后一条净值的次日（增量拉），按需修改</p>
+                            {tushareResult && (
+                                <div className={`text-sm rounded p-3 border ${tushareResult.ok ? 'bg-green-50 border-green-200 text-green-800' : 'bg-red-50 border-red-200 text-red-700'}`}>
+                                    <div>{tushareResult.message}</div>
+                                    {tushareResult.summary && (
+                                        <div className="text-xs mt-1">
+                                            共 {tushareResult.summary.total} 条 · 新建 {tushareResult.summary.created} · 更新 {tushareResult.summary.updated} · 跳过 {tushareResult.summary.skipped}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                        <div className="p-4 border-t border-gray-200 flex justify-end gap-2">
+                            <button onClick={() => setTushareOpen(false)} disabled={tushareFetching}
+                                className="px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded disabled:opacity-50">
+                                关闭
+                            </button>
+                            <button onClick={handleFetchTushare} disabled={tushareFetching}
+                                className="px-4 py-2 text-sm bg-emerald-600 text-white rounded hover:bg-emerald-700 disabled:opacity-50">
+                                {tushareFetching ? '拉取中...' : '开始拉取'}
                             </button>
                         </div>
                     </div>
