@@ -1,5 +1,6 @@
 'use client';
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import {
     CycleTag, QuantType, AlgorithmType, StrategyType, FofOwnTag, CustomTag,
 } from '@/lib/types';
@@ -30,6 +31,7 @@ const getErrorMessage = (err: unknown): string => {
 };
 
 export default function AdminTagManager() {
+    const router = useRouter();
     const [activeTagType, setActiveTagType] = useState<TagType>('custom');
     const [tags, setTags] = useState<{
         cycles: CycleTag[];
@@ -168,6 +170,13 @@ export default function AdminTagManager() {
                         </div>
                     </div>
                     <div className="flex gap-2">
+                        <button
+                            onClick={() => router.push(`/net-values?custom=${tag.id}`)}
+                            className="px-3 py-1.5 text-xs bg-emerald-50 text-emerald-700 rounded border border-emerald-200 hover:bg-emerald-100"
+                            title={`把'${tag.tag_name}'下的所有产品填进产品对比页`}
+                        >
+                            对比
+                        </button>
                         <button
                             onClick={() => openModal('add', 'custom', undefined, tag)}
                             disabled={operateLoading}

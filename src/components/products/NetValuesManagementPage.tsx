@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import * as echarts from 'echarts';
 import { useBasket } from '@/contexts/BasketContext';
 import type { CSSProperties } from 'react';
@@ -794,6 +795,37 @@ export default function NetValuesManagementPage() {
         setSelectedIndexIds(combinedIndexIds.filter(id => validIdx.includes(id)));
     };
 
+    // 一键清空已选（基准产品 + 对比产品 + 基准指数全清）
+    const clearAllSelected = () => {
+        setSelectedBenchmark(null);
+        setSelectedCompares([]);
+        setSelectedIndexIds([]);
+    };
+
+    // 从 URL ?custom=<tag_id> 进入时，拉该自定义标签下的产品全部塞进'对比'；
+    // 触发场景：标签页面 /admin/tags 里点某个自定义标签条目跳过来
+    const searchParams = useSearchParams();
+    const customTagParam = searchParams?.get('custom') ?? '';
+    useEffect(() => {
+        if (!customTagParam) return;
+        let cancelled = false;
+        void (async () => {
+            try {
+                const res = await productApi.getProducts({
+                    custom: customTagParam, page_size: '2000', lite: '1',
+                });
+                if (cancelled) return;
+                const list = res.results ?? [];
+                setSelectedBenchmark(null);
+                setSelectedCompares(list);
+                // 基准指数保持原状（用户可能已选了对比基准）
+            } catch (e) {
+                console.error('拉取标签产品失败', e);
+            }
+        })();
+        return () => { cancelled = true; };
+    }, [customTagParam]);
+
     // 渲染 UI
     return (
         <div style={STYLES.container}>
@@ -904,6 +936,22 @@ export default function NetValuesManagementPage() {
                     }}
                 >
                     应用到本页（{currentBaskets.length > 1 ? `合并 ${currentBaskets.length} 个篮子，` : ''}替换已选）
+                </button>
+                <button
+                    type="button"
+                    onClick={clearAllSelected}
+                    disabled={!selectedBenchmark && selectedCompares.length === 0 && selectedIndexIds.length === 0}
+                    title="清空当前已选的基准产品 / 对比产品 / 基准指数"
+                    style={{
+                        padding: '4px 12px', fontSize: 13, borderRadius: 4,
+                        background: '#fff',
+                        color: (!selectedBenchmark && selectedCompares.length === 0 && selectedIndexIds.length === 0) ? '#d1d5db' : '#dc2626',
+                        border: '1px solid',
+                        borderColor: (!selectedBenchmark && selectedCompares.length === 0 && selectedIndexIds.length === 0) ? '#e5e7eb' : '#fecaca',
+                        cursor: (!selectedBenchmark && selectedCompares.length === 0 && selectedIndexIds.length === 0) ? 'not-allowed' : 'pointer',
+                    }}
+                >
+                    清空对比产品
                 </button>
                 <span style={{ fontSize: 11, color: '#6b7280', width: '100%' }}>
                     可多选；多个篮子的产品/基准会去重合并。应用后仍可在下方产品列表 / 基准指数区继续追加非篮子的对象

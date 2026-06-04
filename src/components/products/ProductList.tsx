@@ -77,7 +77,6 @@ export default function ProductList({ products, ordering = '', onOrderingChange,
                         title={onOrderingChange ? '点击切换排序：降序 / 升序 / 默认' : undefined}
                     >
                         最近一月收益率 <span className={ordering.includes('return_1m') ? 'text-blue-600' : 'text-gray-400'}>{return1mArrow}</span>
-                        <div className="text-[10px] font-normal text-gray-400 mt-0.5 normal-case">窗口：今天往前 30 天</div>
                     </th>
                     <th className="px-6 py-3">最新净值日期</th>
                     <th className="px-6 py-3 rounded-r-lg">打分</th>
@@ -129,7 +128,7 @@ export default function ProductList({ products, ordering = '', onOrderingChange,
                                     )}
                                     <button
                                         onClick={(e) => { e.stopPropagation(); setTagEditing(product); }}
-                                        className="text-gray-300 hover:text-blue-600 ml-0.5 text-[10px] leading-none transition-colors"
+                                        className="border-0 bg-transparent p-0 text-gray-600 hover:text-blue-600 ml-1 text-xs leading-none cursor-pointer transition-colors"
                                         title="编辑标签"
                                     >
                                         ✎
