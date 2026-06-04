@@ -129,7 +129,7 @@ export default function ProductList({ products, ordering = '', onOrderingChange,
                                     )}
                                     <button
                                         onClick={(e) => { e.stopPropagation(); setTagEditing(product); }}
-                                        className="opacity-0 group-hover/tags:opacity-100 text-gray-400 hover:text-blue-600 ml-0.5 transition-opacity"
+                                        className="text-gray-300 hover:text-blue-600 ml-0.5 text-[10px] leading-none transition-colors"
                                         title="编辑标签"
                                     >
                                         ✎
