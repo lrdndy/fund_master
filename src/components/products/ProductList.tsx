@@ -76,7 +76,8 @@ export default function ProductList({ products, ordering = '', onOrderingChange,
                         onClick={onOrderingChange ? cycleReturn1mOrdering : undefined}
                         title={onOrderingChange ? '点击切换排序：降序 / 升序 / 默认' : undefined}
                     >
-                        近一月收益率 <span className={ordering.includes('return_1m') ? 'text-blue-600' : 'text-gray-400'}>{return1mArrow}</span>
+                        最近一月收益率 <span className={ordering.includes('return_1m') ? 'text-blue-600' : 'text-gray-400'}>{return1mArrow}</span>
+                        <div className="text-[10px] font-normal text-gray-400 mt-0.5 normal-case">窗口：今天往前 30 天</div>
                     </th>
                     <th className="px-6 py-3">最新净值日期</th>
                     <th className="px-6 py-3 rounded-r-lg">打分</th>
@@ -135,7 +136,14 @@ export default function ProductList({ products, ordering = '', onOrderingChange,
                                     </button>
                                 </div>
                             </td>
-                            <td className={`px-6 py-4 font-medium ${ret.cls}`}>{ret.text}</td>
+                            <td className="px-6 py-4">
+                                <div className={`font-medium ${ret.cls}`}>{ret.text}</div>
+                                {product.return_1m_start_date && product.return_1m_end_date && (
+                                    <div className="text-[10px] text-gray-400 mt-0.5 font-mono whitespace-nowrap">
+                                        {product.return_1m_start_date.slice(5)} → {product.return_1m_end_date.slice(5)}
+                                    </div>
+                                )}
+                            </td>
                             <td className="px-6 py-4 text-gray-600 whitespace-nowrap">{product.latest_nv_date ?? '—'}</td>
                             <td className="px-6 py-4">{formatScore(product.score)}</td>
                         </tr>

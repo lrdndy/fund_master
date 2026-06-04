@@ -98,6 +98,8 @@ export interface Product {
     custom_tags?: CustomTag[];
     custom_tag_ids?: number[];
     return_1m?: number | null;
+    return_1m_start_date?: string | null;
+    return_1m_end_date?: string | null;
     latest_nv_date?: string | null;
     score: number | string;
     product_desc: string | null;
