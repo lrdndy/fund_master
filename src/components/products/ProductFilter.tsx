@@ -164,7 +164,7 @@ export default function ProductFilter({ tags, filters, onFilterChange }: Product
                     </select>
                 </div>
 
-                {/* 排序：近一月收益率 */}
+                {/* 排序：最近一月收益率（窗口=今天往前 30 天） */}
                 <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">排序</label>
                     <select
@@ -173,8 +173,8 @@ export default function ProductFilter({ tags, filters, onFilterChange }: Product
                         className="select-field"
                     >
                         <option value="">默认</option>
-                        <option value="-return_1m">近一月收益率（高 → 低）</option>
-                        <option value="return_1m">近一月收益率（低 → 高）</option>
+                        <option value="-return_1m">最近一月收益率（高 → 低）</option>
+                        <option value="return_1m">最近一月收益率（低 → 高）</option>
                     </select>
                 </div>
 
