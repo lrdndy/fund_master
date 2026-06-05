@@ -829,9 +829,9 @@ export default function NetValuesManagementPage() {
     // 渲染 UI
     return (
         <div style={STYLES.container}>
-            <h1 style={STYLES.title}>净值管理</h1>
+            <h1 style={STYLES.title}>产品对比</h1>
 
-            {/* 筛选栏 */}
+            {/* 筛选栏：第一行 = 产品名/周期/量化/算法/策略/FOF，第二行 = 自定义标签（最常用，单独占首位）+ 操作 */}
             <div style={STYLES.filterCard}>
                 <div style={STYLES.filterGrid}>
                     <div style={STYLES.filterItem}>
@@ -875,7 +875,8 @@ export default function NetValuesManagementPage() {
                             {tags.fofOwnTags.map((f: FofOwnTag) => <option key={f.id} value={String(f.id)}>{f.fof_name}</option>)}
                         </select>
                     </div>
-                    <div style={STYLES.filterItem}>
+                    {/* 第二行：自定义标签放最前（常用维度），紧跟操作按钮 */}
+                    <div style={{ ...STYLES.filterItem, gridColumnStart: 1 }}>
                         <label style={STYLES.filterLabel}>自定义标签</label>
                         <select style={STYLES.filterSelect} value={filters.custom} onChange={e => handleFilterChange('custom', e.target.value)}>
                             <option value="">全部</option>

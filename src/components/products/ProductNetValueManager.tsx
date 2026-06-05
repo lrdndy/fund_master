@@ -85,6 +85,15 @@ export default function ProductNetValueManager({ initialProductId }: ProductNetV
             // 关键字模糊查（如 "2024" / "2024-05" / "-13"）在前端做
             const kw = dateKeyword.trim();
             if (kw) allList = allList.filter(nv => (nv.net_value_date ?? '').includes(kw));
+            // 新数据排前面（按 net_value_date 降序，空日期沉底）
+            allList = [...allList].sort((a, b) => {
+                const da = a.net_value_date ?? '';
+                const db = b.net_value_date ?? '';
+                if (!da && !db) return 0;
+                if (!da) return 1;
+                if (!db) return -1;
+                return db.localeCompare(da);
+            });
             setTotalCount(allList.length);
 
             const startIndex = (currentPage - 1) * pageSize;
