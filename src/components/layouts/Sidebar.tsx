@@ -61,7 +61,7 @@ export default function Sidebar() {
                     <button onClick={sidebar.close} className="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
                 </div>
 
-                <div className="p-2 space-y-1 overflow-y-auto">
+                <div className="p-2 space-y-1">
                     {menuItems.map((item) => (
                         <button
                             key={item.path}
@@ -89,9 +89,7 @@ export default function Sidebar() {
                                 <span className="text-[10px] text-blue-600 truncate max-w-[80px]">
                                     {currentBaskets.length === 1 ? currentBaskets[0].name : `已选 ${currentBaskets.length} 个`}
                                 </span>
-                            ) : (
-                                <span className="text-xs text-gray-300">›</span>
-                            )}
+                            ) : null}
                         </button>
 
                         <div className="hidden group-hover:block absolute left-full top-0 pl-2 z-50">
