@@ -10,7 +10,9 @@ import {
     filterRange,
     findAtOrBefore,
     findAtOrAfter,
+    maxDrawdown,
     normalizePoints,
+    totalReturn,
 } from '@/lib/metrics';
 
 export interface NamedSeries {
@@ -128,6 +130,28 @@ export default function ProductMetrics({
     }
 
     const productBundle = computeBundle(productPoints, productRange, riskFreeRate);
+
+    // 超额指标：对各基准分别算产品相对该基准的超额
+    const excessBundles = useMemo(() => {
+        if (benchmarkBundles.length === 0 || productRange.length < 2) return [];
+        return benchmarkBundles.map(b => {
+            const baseRange = filterRange(b.points, rangeStart, rangeEnd);
+            if (baseRange.length < 2) return null;
+            const pNorm = productRange.map(p => ({ ...p, value: p.value / productRange[0].value }));
+            const bNorm = baseRange.map(p => ({ ...p, value: p.value / baseRange[0].value }));
+            const bMap = new Map(bNorm.map(p => [p.dateStr, p.value]));
+            const aligned = pNorm.filter(p => bMap.has(p.dateStr));
+            if (aligned.length < 2) return null;
+            const excessPts: MetricPoint[] = aligned.map(p => ({
+                ...p, value: p.value - bMap.get(p.dateStr)!,
+            }));
+            return {
+                name: b.name,
+                excessReturn: totalReturn(excessPts),
+                excessMdd: maxDrawdown(excessPts),
+            };
+        }).filter(Boolean) as { name: string; excessReturn: number | null; excessMdd: number | null }[];
+    }, [benchmarkBundles, productRange, rangeStart, rangeEnd]);
 
     const hasRange = Boolean(rangeStart || rangeEnd);
     const rangeLabel = (() => {
@@ -247,6 +271,37 @@ export default function ProductMetrics({
                                                 {row.kind === 'pct'
                                                     ? <PctCell value={b.bundle[row.key]} />
                                                     : fmtNum(b.bundle[row.key])}
+                                            </td>
+                                        ))}
+                                    </tr>
+                                ))}
+                                {excessBundles.length > 0 && (
+                                    <tr className="border-t border-gray-200 bg-amber-50/50">
+                                        <td className="px-3 py-2 text-gray-700 font-medium" colSpan={1 + benchmarkBundles.length}>超额收益（相对基准）</td>
+                                    </tr>
+                                )}
+                                {excessBundles.map(eb => (
+                                    <tr key={`ex-${eb.name}`} className="border-t border-gray-100">
+                                        <td className="px-3 py-2 text-gray-600 pl-6 text-xs">区间超额收益</td>
+                                        <td className="px-3 py-2 text-right">—</td>
+                                        {benchmarkBundles.map(b => (
+                                            <td key={b.name} className="px-3 py-2 text-right">
+                                                {b.name === eb.name
+                                                    ? <PctCell value={eb.excessReturn} />
+                                                    : <span className="text-gray-300">—</span>}
+                                            </td>
+                                        ))}
+                                    </tr>
+                                ))}
+                                {excessBundles.map(eb => (
+                                    <tr key={`ex-mdd-${eb.name}`} className="border-t border-gray-100">
+                                        <td className="px-3 py-2 text-gray-600 pl-6 text-xs">超额区间最大回撤</td>
+                                        <td className="px-3 py-2 text-right">—</td>
+                                        {benchmarkBundles.map(b => (
+                                            <td key={b.name} className="px-3 py-2 text-right">
+                                                {b.name === eb.name
+                                                    ? <PctCell value={eb.excessMdd} />
+                                                    : <span className="text-gray-300">—</span>}
                                             </td>
                                         ))}
                                     </tr>

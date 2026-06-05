@@ -24,6 +24,14 @@ export interface MetricBundle {
     totalReturn: number | null;
     rangeReturn: number | null;
     rangeMdd: number | null;
+    /** 超额收益（相对基准）：区间内全部日期对齐后的 (产品-基准) 累计超额 */
+    excessReturn: number | null;
+    /** 超额收益的最大回撤（回撤计算在超额曲线上） */
+    excessMdd: number | null;
+    /** 超额年化波动率 */
+    excessAnnVol: number | null;
+    /** 超额夏普比率（用超额收益的均值和波动） */
+    excessSharpe: number | null;
 }
 
 export const TRADING_DAYS_PER_YEAR = 252;
@@ -186,8 +194,10 @@ export function computeBundle(
     allPoints: MetricPoint[],
     rangePoints: MetricPoint[],
     riskFree = DEFAULT_RISK_FREE,
+    /** 基准的归一化净值序列（与产品同一起点，共同日期对齐），传入后计算超额指标 */
+    baseAligned?: MetricPoint[],
 ): MetricBundle {
-    return {
+    const bundle: MetricBundle = {
         r1w: periodReturn(allPoints, 7),
         r1m: periodReturn(allPoints, 30),
         r3m: periodReturn(allPoints, 90),
@@ -200,5 +210,33 @@ export function computeBundle(
         totalReturn: totalReturn(allPoints),
         rangeReturn: totalReturn(rangePoints),
         rangeMdd: maxDrawdown(rangePoints),
+        excessReturn: null,
+        excessMdd: null,
+        excessAnnVol: null,
+        excessSharpe: null,
     };
+
+    // 超额指标：需基准序列对齐
+    if (baseAligned && baseAligned.length >= 2 && rangePoints.length >= 2) {
+        const baseMap = new Map(baseAligned.map(p => [p.dateStr, p.value]));
+        const excessPoints: MetricPoint[] = [];
+        for (const p of rangePoints) {
+            const baseVal = baseMap.get(p.dateStr);
+            if (baseVal != null) {
+                excessPoints.push({
+                    date: p.date,
+                    dateStr: p.dateStr,
+                    value: p.value - baseVal, // 都归一化到起点=1，差值即超额
+                });
+            }
+        }
+        if (excessPoints.length >= 2) {
+            bundle.excessReturn = totalReturn(excessPoints);
+            bundle.excessMdd = maxDrawdown(excessPoints);
+            bundle.excessAnnVol = annualizedVolatility(excessPoints);
+            bundle.excessSharpe = sharpeRatio(excessPoints, 0); // 超额本身已扣基准，无风险=0
+        }
+    }
+
+    return bundle;
 }
