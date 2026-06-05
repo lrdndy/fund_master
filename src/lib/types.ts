@@ -227,6 +227,8 @@ export interface ProductFilterParams {
     custom: string;
     is_valid?: string;
     ordering?: string; // 排序，如 '-return_1m'（近一月收益降序）/ 'return_1m'（升序）/ '' 默认
+    /** 最新净值日期 >= 此值才展示 */
+    latest_nv_date_min?: string;
 }
 
 export interface TagsState {

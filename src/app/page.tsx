@@ -63,6 +63,7 @@ export default function HomePage() {
     custom: '',
     search: '',
     ordering: '',
+    latest_nv_date_min: '',
   });
 
   // 进入页面时恢复上次筛选 + 篮子视图开关（mount 后读，避免 SSR hydration mismatch）
@@ -144,6 +145,7 @@ export default function HomePage() {
         if (filters.custom) params.custom = filters.custom;
         if (filters.search) params.search = filters.search;
         if (filters.ordering) params.ordering = filters.ordering;
+        if (filters.latest_nv_date_min) params.latest_nv_date_min = filters.latest_nv_date_min;
 
         params.page = String(page);
         params.page_size = String(pageSize);
