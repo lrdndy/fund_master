@@ -5,8 +5,11 @@ import { ProductNetValue } from '@/lib/types';
 import {
     DEFAULT_RISK_FREE,
     MetricBundle,
+    MetricPoint,
     computeBundle,
     filterRange,
+    findAtOrBefore,
+    findAtOrAfter,
     normalizePoints,
 } from '@/lib/metrics';
 
@@ -54,6 +57,26 @@ function returnColor(n: number | null): string {
     if (n > 0) return 'text-red-600';
     if (n < 0) return 'text-green-600';
     return 'text-gray-700';
+}
+
+// 计算某个期间（从 latest 往前推 daysAgo 天）的实际数据起止日期
+function periodDateRange(points: MetricPoint[], daysAgo: number): { start: string; end: string } | null {
+    if (points.length < 2) return null;
+    const latest = points[points.length - 1];
+    const target = new Date(latest.date.getTime() - daysAgo * 86400000);
+    const prev = findAtOrBefore(points, target);
+    if (!prev || prev.dateStr === latest.dateStr) return null;
+    return { start: prev.dateStr, end: latest.dateStr };
+}
+
+// 计算 YTD 的实际起止日期
+function ytdDateRange(points: MetricPoint[]): { start: string; end: string } | null {
+    if (points.length < 2) return null;
+    const latest = points[points.length - 1];
+    const yearStart = new Date(latest.date.getFullYear(), 0, 1);
+    const prev = findAtOrAfter(points, yearStart);
+    if (!prev || prev.dateStr === latest.dateStr) return null;
+    return { start: prev.dateStr, end: latest.dateStr };
 }
 
 function MetricCard({
@@ -114,6 +137,27 @@ export default function ProductMetrics({
         return `${s} ~ ${e}`;
     })();
 
+    const periodSub = (() => {
+        const s = (days: number) => {
+            const r = periodDateRange(productPoints, days);
+            return r ? `${r.start} ~ ${r.end}` : undefined;
+        };
+        const ytd = ytdDateRange(productPoints);
+        return {
+            r1w: s(7),
+            r1m: s(30),
+            r3m: s(90),
+            r1y: s(365),
+            rYtd: ytd ? `${ytd.start} ~ ${ytd.end}` : undefined,
+        };
+    })();
+
+    // 风险指标的日期范围（用全部数据的起止）
+    const riskSub = (() => {
+        if (productPoints.length < 2) return undefined;
+        return `${productPoints[0].dateStr} ~ ${productPoints[productPoints.length - 1].dateStr}`;
+    })();
+
     const hasBenchmark = benchmarkBundles.length > 0;
 
     // 对比表的行定义
@@ -135,11 +179,11 @@ export default function ProductMetrics({
             <div>
                 <h3 className="text-sm font-semibold text-gray-700 mb-2">周期收益率</h3>
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
-                    <MetricCard label="近一周" value={fmtPct(productBundle.r1w)} valueCls={returnColor(productBundle.r1w)} />
-                    <MetricCard label="近一月" value={fmtPct(productBundle.r1m)} valueCls={returnColor(productBundle.r1m)} />
-                    <MetricCard label="近三月" value={fmtPct(productBundle.r3m)} valueCls={returnColor(productBundle.r3m)} />
-                    <MetricCard label="近一年" value={fmtPct(productBundle.r1y)} valueCls={returnColor(productBundle.r1y)} />
-                    <MetricCard label="今年以来 (YTD)" value={fmtPct(productBundle.rYtd)} valueCls={returnColor(productBundle.rYtd)} />
+                    <MetricCard label="近一周" value={fmtPct(productBundle.r1w)} valueCls={returnColor(productBundle.r1w)} sub={periodSub.r1w} />
+                    <MetricCard label="近一月" value={fmtPct(productBundle.r1m)} valueCls={returnColor(productBundle.r1m)} sub={periodSub.r1m} />
+                    <MetricCard label="近三月" value={fmtPct(productBundle.r3m)} valueCls={returnColor(productBundle.r3m)} sub={periodSub.r3m} />
+                    <MetricCard label="近一年" value={fmtPct(productBundle.r1y)} valueCls={returnColor(productBundle.r1y)} sub={periodSub.r1y} />
+                    <MetricCard label="今年以来 (YTD)" value={fmtPct(productBundle.rYtd)} valueCls={returnColor(productBundle.rYtd)} sub={periodSub.rYtd} />
                 </div>
             </div>
 
@@ -148,9 +192,9 @@ export default function ProductMetrics({
                     风险指标 <span className="text-xs text-gray-400 font-normal">（无风险利率 {(riskFreeRate * 100).toFixed(1)}%，年化按 252 交易日）</span>
                 </h3>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                    <MetricCard label="最大回撤" value={fmtPct(productBundle.mdd)} valueCls={productBundle.mdd !== null && productBundle.mdd < 0 ? 'text-green-700' : 'text-gray-700'} />
-                    <MetricCard label="年化波动率" value={fmtPct(productBundle.annVol)} />
-                    <MetricCard label="夏普比率" value={fmtNum(productBundle.sharpe)} valueCls={productBundle.sharpe !== null && productBundle.sharpe > 0 ? 'text-red-600' : productBundle.sharpe !== null && productBundle.sharpe < 0 ? 'text-green-600' : 'text-gray-700'} />
+                    <MetricCard label="最大回撤" value={fmtPct(productBundle.mdd)} valueCls={productBundle.mdd !== null && productBundle.mdd < 0 ? 'text-green-700' : 'text-gray-700'} sub={riskSub} />
+                    <MetricCard label="年化波动率" value={fmtPct(productBundle.annVol)} sub={riskSub} />
+                    <MetricCard label="夏普比率" value={fmtNum(productBundle.sharpe)} valueCls={productBundle.sharpe !== null && productBundle.sharpe > 0 ? 'text-red-600' : productBundle.sharpe !== null && productBundle.sharpe < 0 ? 'text-green-600' : 'text-gray-700'} sub={riskSub} />
                 </div>
             </div>
 

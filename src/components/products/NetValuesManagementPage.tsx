@@ -230,6 +230,7 @@ export default function NetValuesManagementPage() {
     // 超额收益：叠加到净值图和收益率图（次坐标轴虚线）；basis 用某条 series 的 id 作基准
     const [showExcess, setShowExcess] = useState(false);
     const [excessBaseId, setExcessBaseId] = useState<number | null>(null);
+    const [showExcessOnly, setShowExcessOnly] = useState(false);
     const debouncedResize = useRef<(() => void) | null>(null);
 
     // 初始化图表
@@ -554,14 +555,16 @@ export default function NetValuesManagementPage() {
         });
 
         const { excessSeries, baseName } = buildExcessSeries(alignT0);
+        const mainSeries = (!showExcessOnly || !excessSeries.length) ? series : [];
+        const activeExcessSeries = excessSeries;
         const sub = [
             alignT0 ? `对齐共同起跳日：${alignT0}` : '',
-            excessSeries.length ? `超额基准：${baseName}（右轴虚线）` : '',
+            activeExcessSeries.length ? `超额基准：${baseName}（右轴虚线）` : '',
         ].filter(Boolean).join('　·　');
 
         netValueChart.current.setOption({
             title: {
-                text: '累计净值（归一化，起点=1）',
+                text: showExcessOnly ? '超额收益走势' : '累计净值（归一化，起点=1）',
                 subtext: sub || undefined,
                 left: 'center',
                 textStyle: { fontSize: 16, fontWeight: 'bold' },
@@ -571,11 +574,13 @@ export default function NetValuesManagementPage() {
             tooltip: { trigger: 'axis', valueFormatter: (v: unknown) => v == null ? '—' : Number(v).toFixed(4) } as never,
             grid: { left: '10%', right: excessSeries.length ? '10%' : '6%', bottom: '18%', top: sub ? '22%' : '18%' },
             xAxis: { type: 'time', axisLabel: { rotate: 20 } },
-            yAxis: excessSeries.length
-                ? [{ type: 'value', name: '相对净值', scale: true, axisLabel: { formatter: (v: number) => v.toFixed(3) } }, excessYAxis()]
+            yAxis: activeExcessSeries.length
+                ? (showExcessOnly
+                    ? { type: 'value', name: '超额%', scale: true, axisLabel: { formatter: (v: number) => `${v.toFixed(2)}%` } }
+                    : [{ type: 'value', name: '相对净值', scale: true, axisLabel: { formatter: (v: number) => v.toFixed(3) } }, excessYAxis()])
                 : { type: 'value', name: '相对净值', scale: true, axisLabel: { formatter: (v: number) => v.toFixed(3) } },
             dataZoom: [{ type: 'slider', bottom: 5 }, { type: 'inside' }],
-            series: [...series, ...excessSeries],
+            series: [...mainSeries, ...activeExcessSeries],
         } as Record<string, unknown>, true);
     };
 
@@ -605,14 +610,16 @@ export default function NetValuesManagementPage() {
         });
 
         const { excessSeries, baseName } = buildExcessSeries(alignT0);
+        const mainSeries = (!showExcessOnly || !excessSeries.length) ? series : [];
+        const activeExcessSeries = excessSeries;
         const sub = [
             alignT0 ? `对齐共同起跳日：${alignT0}` : '',
-            excessSeries.length ? `超额基准：${baseName}（右轴虚线）` : '',
+            activeExcessSeries.length ? `超额基准：${baseName}（右轴虚线）` : '',
         ].filter(Boolean).join('　·　');
 
         returnChart.current.setOption({
             title: {
-                text: '收益率走势（%）',
+                text: showExcessOnly ? '超额收益走势（%）' : '收益率走势（%）',
                 subtext: sub || undefined,
                 left: 'center',
                 textStyle: { fontSize: 16, fontWeight: 'bold' },
@@ -620,13 +627,15 @@ export default function NetValuesManagementPage() {
             },
             legend: { top: sub ? 56 : 40, left: 'center' },
             tooltip: { trigger: 'axis', valueFormatter: (v: unknown) => v == null ? '—' : `${Number(v).toFixed(2)}%` } as never,
-            grid: { left: '10%', right: excessSeries.length ? '10%' : '6%', bottom: '18%', top: sub ? '22%' : '18%' },
+            grid: { left: '10%', right: activeExcessSeries.length ? '10%' : '6%', bottom: '18%', top: sub ? '22%' : '18%' },
             xAxis: { type: 'time', axisLabel: { rotate: 20 } },
-            yAxis: excessSeries.length
-                ? [{ type: 'value', name: '收益率(%)' }, excessYAxis()]
+            yAxis: activeExcessSeries.length
+                ? (showExcessOnly
+                    ? { type: 'value', name: '超额%', scale: true, axisLabel: { formatter: (v: number) => `${v.toFixed(2)}%` } }
+                    : [{ type: 'value', name: '收益率(%)' }, excessYAxis()])
                 : { type: 'value', name: '收益率(%)' },
             dataZoom: [{ type: 'slider', bottom: 5 }, { type: 'inside' }],
-            series: [...series, ...excessSeries],
+            series: [...mainSeries, ...activeExcessSeries],
         } as Record<string, unknown>, true);
     };
 
@@ -767,7 +776,7 @@ export default function NetValuesManagementPage() {
         renderDrawdown();
         renderCorrelation();
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [chartProductList, showExcess, excessBaseId]);
+    }, [chartProductList, showExcess, excessBaseId, showExcessOnly]);
 
     // 交互方法
     const handleFilterChange = (k: keyof ProductFilterParams, v: string) => setFilters(f => ({ ...f, [k]: v }));
@@ -1117,6 +1126,12 @@ export default function NetValuesManagementPage() {
                                 ))}
                             </select>
                         </span>
+                    )}
+                    {showExcess && (
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#374151', cursor: 'pointer', marginLeft: 'auto' }}>
+                            <input type="checkbox" checked={showExcessOnly} onChange={e => setShowExcessOnly(e.target.checked)} />
+                            仅显示超额曲线
+                        </label>
                     )}
                 </div>
             )}
