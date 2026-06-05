@@ -38,10 +38,10 @@ export default function Navbar({ className = '' }: NavbarProps) {
         <nav className={`bg-white px-4 py-3 md:px-6 h-16 flex items-center ${className}`}>
             <div className="flex w-full items-center justify-between">
                 <div className="flex items-center gap-3">
-                    {/* 侧边栏切换按钮 */}
+                    {/* 侧边栏切换按钮 — 移动端显示，桌面隐藏 */}
                     <button
                         onClick={sidebar.toggle}
-                        className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-600 transition"
+                        className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-600 transition lg:hidden"
                         title={sidebar.open ? '收起侧边栏' : '展开侧边栏'}
                     >
                         {sidebar.open ? (

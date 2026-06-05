@@ -173,13 +173,14 @@ export default function Sidebar() {
                     </div>
                 </div>
 
-                {editing && (
-                    <BasketEditorModal
-                        initial={editing === 'new' ? null : editing}
-                        onClose={() => setEditing(null)}
-                    />
-                )}
             </aside>
+
+            {editing && (
+                <BasketEditorModal
+                    initial={editing === 'new' ? null : editing}
+                    onClose={() => setEditing(null)}
+                />
+            )}
         </>
     );
 }
