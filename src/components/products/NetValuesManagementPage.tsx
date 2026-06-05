@@ -1194,24 +1194,20 @@ export default function NetValuesManagementPage() {
                         <thead>
                         <tr>
                             <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>名称</th>
-                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>近一周</th>
-                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>近一月</th>
-                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>近三月</th>
-                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>近一年</th>
+                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>单位净值</th>
+                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>累计净值</th>
+                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>近1周</th>
+                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>近1月</th>
+                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>近1年</th>
                             <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>YTD</th>
-                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>累计收益</th>
-                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>年化收益</th>
                             <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>最大回撤</th>
-                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>年化波动</th>
                             <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>夏普</th>
-                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>超额收益</th>
-                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>超额回撤</th>
+                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>备注</th>
                         </tr>
                         </thead>
                         <tbody>
                         {productIndicators.map((item, i) => {
                             const b = item.bundle;
-                            // 计算每行各指标的日期范围
                             const pts = normalizePoints(chartProductList[i]?.netValues ?? []);
                             const s = (days: number) => {
                                 const r = periodDateRange(pts, days);
@@ -1224,35 +1220,44 @@ export default function NetValuesManagementPage() {
                                 if (key === 'rYtd') return ytd ? `${ytd.start} ~ ${ytd.end}` : null;
                                 return overall;
                             };
-                            // 超额指标：先算第一行非指数的基准产品的超额
+
+                            // 超额基准：第一个非指数基准产品
                             const chartItem = chartProductList[i];
                             const baseItem = chartProductList.find(p => p.isBenchmark && !p.isIndex)
                                 ?? chartProductList.find(p => !p.isIndex && p.id !== chartItem?.id)
                                 ?? chartProductList.find(p => p.isBenchmark);
-                            let excessReturn: number | null = null;
-                            let excessMdd: number | null = null;
-                            if (baseItem && chartItem && baseItem.id !== chartItem.id && !chartItem.isBenchmark) {
+
+                            // 算超额指标（与基准对齐）
+                            function calcExcess(key: string): number | null {
+                                if (!chartItem || !baseItem || baseItem.id === chartItem.id || chartItem.isBenchmark) return null;
                                 const alT0 = chartProductList.length > 1 ? computeAlignT0(chartProductList) : undefined;
-                                const iVisible = alT0 ? chartItem.netValues.filter(nv => nv.date >= alT0) : chartItem.netValues;
-                                const bVisible = alT0 ? baseItem.netValues.filter(nv => nv.date >= alT0) : baseItem.netValues;
-                                const iStart = iVisible.find(nv => nv.value > 0)?.value || 1;
-                                const bStart = bVisible.find(nv => nv.value > 0)?.value || 1;
-                                const bMap = new Map(bVisible.filter(nv => nv.value > 0).map(nv => [nv.date, nv.value / bStart]));
-                                const excessPts = iVisible
-                                    .filter(nv => nv.value > 0 && bMap.has(nv.date))
-                                    .map(nv => ({ date: nv.date, value: (nv.value / iStart) - bMap.get(nv.date)! }));
-                                if (excessPts.length >= 2) {
-                                    excessReturn = excessPts[excessPts.length - 1].value - excessPts[0].value;
-                                    let peak = excessPts[0].value;
-                                    let mdd = 0;
-                                    for (const ep of excessPts) {
-                                        if (ep.value > peak) peak = ep.value;
-                                        const dd = (peak - ep.value) / (peak || 1);
-                                        if (dd > mdd) mdd = dd;
-                                    }
-                                    excessMdd = -mdd;
+                                const iVis = alT0 ? chartItem.netValues.filter(nv => nv.date >= alT0) : chartItem.netValues;
+                                const bVis = alT0 ? baseItem.netValues.filter(nv => nv.date >= alT0) : baseItem.netValues;
+                                const iStart = iVis.find(nv => nv.value > 0)?.value || 1;
+                                const bStart = bVis.find(nv => nv.value > 0)?.value || 1;
+                                const bNorm = new Map(bVis.filter(nv => nv.value > 0).map(nv => [nv.date, nv.value / bStart]));
+                                let excessPts = iVis
+                                    .filter(nv => nv.value > 0 && bNorm.has(nv.date))
+                                    .map(nv => ({ date: nv.date, value: (nv.value / iStart) - bNorm.get(nv.date)! }));
+                                if (excessPts.length < 2) return null;
+
+                                if (key === 'mdd') {
+                                    let peak = 0, mdd = 0;
+                                    for (const ep of excessPts) { if (ep.value > peak) peak = ep.value; const dd = (peak - ep.value) / (peak || 1); if (dd > mdd) mdd = dd; }
+                                    return -mdd;
                                 }
+                                if (key === 'totalReturn') return excessPts[excessPts.length - 1].value - excessPts[0].value;
+                                // period returns
+                                const latestPt = excessPts[excessPts.length - 1];
+                                const target = new Date(new Date(latestPt.date).getTime() - PERIOD_DAYS[key] * 86400000);
+                                const prev = [...excessPts].reverse().find(p => new Date(p.date).getTime() <= target.getTime());
+                                if (!prev || prev.date === latestPt.date) return null;
+                                return (latestPt.value - prev.value) / Math.abs(prev.value || 1);
                             }
+
+                            // 最新净值
+                            const lastRaw = chartItem?.netValues[chartItem.netValues.length - 1] ?? null;
+
                             return (
                                 <tr key={i} style={item.isBenchmark ? STYLES.benchmarkRow : undefined}>
                                     <td style={STYLES.tableCell}>
@@ -1262,14 +1267,17 @@ export default function NetValuesManagementPage() {
                                                   style={{ color: 'inherit', textDecoration: 'none' }}>{displayName(item)}</a>
                                         }
                                     </td>
+                                    <td style={STYLES.tableCell}>
+                                        {lastRaw ? lastRaw.value.toFixed(4) : '—'}
+                                    </td>
+                                    <td style={STYLES.tableCell}>
+                                        {lastRaw ? lastRaw.value.toFixed(4) : '—'}
+                                    </td>
                                     <td style={{ ...STYLES.tableCell, ...returnTextStyle(b.r1w) }}>
                                         {fmtPct(b.r1w)}<SubLabel text={cellSub('r1w')} />
                                     </td>
                                     <td style={{ ...STYLES.tableCell, ...returnTextStyle(b.r1m) }}>
                                         {fmtPct(b.r1m)}<SubLabel text={cellSub('r1m')} />
-                                    </td>
-                                    <td style={{ ...STYLES.tableCell, ...returnTextStyle(b.r3m) }}>
-                                        {fmtPct(b.r3m)}<SubLabel text={cellSub('r3m')} />
                                     </td>
                                     <td style={{ ...STYLES.tableCell, ...returnTextStyle(b.r1y) }}>
                                         {fmtPct(b.r1y)}<SubLabel text={cellSub('r1y')} />
@@ -1277,27 +1285,13 @@ export default function NetValuesManagementPage() {
                                     <td style={{ ...STYLES.tableCell, ...returnTextStyle(b.rYtd) }}>
                                         {fmtPct(b.rYtd)}<SubLabel text={cellSub('rYtd')} />
                                     </td>
-                                    <td style={{ ...STYLES.tableCell, ...returnTextStyle(b.totalReturn) }}>
-                                        {fmtPct(b.totalReturn)}<SubLabel text={cellSub('totalReturn')} />
-                                    </td>
-                                    <td style={{ ...STYLES.tableCell, ...returnTextStyle(b.annRet) }}>
-                                        {fmtPct(b.annRet)}<SubLabel text={cellSub('annRet')} />
-                                    </td>
                                     <td style={STYLES.tableCell}>
                                         {fmtPct(b.mdd)}<SubLabel text={cellSub('mdd')} />
                                     </td>
                                     <td style={STYLES.tableCell}>
-                                        {fmtPct(b.annVol)}<SubLabel text={cellSub('annVol')} />
-                                    </td>
-                                    <td style={STYLES.tableCell}>
                                         {fmtNum(b.sharpe)}<SubLabel text={cellSub('sharpe')} />
                                     </td>
-                                    <td style={{ ...STYLES.tableCell, ...returnTextStyle(excessReturn) }}>
-                                        {fmtPct(excessReturn)}<SubLabel text={overall} />
-                                    </td>
-                                    <td style={STYLES.tableCell}>
-                                        {fmtPct(excessMdd)}<SubLabel text={overall} />
-                                    </td>
+                                    <td style={STYLES.tableCell}>{/* 备注占位 */}</td>
                                 </tr>
                             );
                         })}
