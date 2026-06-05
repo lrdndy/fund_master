@@ -44,6 +44,7 @@ interface ChartProductData {
 type TimeRangeType = 'inception' | 'ytd' | '1m' | '3m' | '6m' | '1y' | 'custom';
 
 interface ProductIndicator {
+    id: number;
     name: string;
     isBenchmark: boolean;
     isIndex?: boolean;
@@ -97,6 +98,7 @@ const calculateMaxDrawdown = (netValues: ValidNetValue[]) => {
 const generateProductIndicators = (list: ChartProductData[]): ProductIndicator[] => list.map(item => {
     const pts = normalizePoints(item.netValues);
     return {
+        id: item.id,
         name: item.name,
         isBenchmark: item.isBenchmark,
         isIndex: item.isIndex,
@@ -1222,7 +1224,13 @@ export default function NetValuesManagementPage() {
                             };
                             return (
                                 <tr key={i} style={item.isBenchmark ? STYLES.benchmarkRow : undefined}>
-                                    <td style={STYLES.tableCell}>{displayName(item)}</td>
+                                    <td style={STYLES.tableCell}>
+                                        {item.isIndex || item.id <= 0
+                                            ? displayName(item)
+                                            : <a href={`/products/${item.id}`} target="_blank" rel="noopener noreferrer"
+                                                  style={{ color: '#1d4ed8', textDecoration: 'underline' }}>{displayName(item)}</a>
+                                        }
+                                    </td>
                                     <td style={{ ...STYLES.tableCell, ...returnTextStyle(b.r1w) }}>
                                         {fmtPct(b.r1w)}<SubLabel text={cellSub('r1w')} />
                                     </td>
