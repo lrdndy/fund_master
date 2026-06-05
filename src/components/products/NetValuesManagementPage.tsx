@@ -1228,7 +1228,7 @@ export default function NetValuesManagementPage() {
                                         {item.isIndex || item.id <= 0
                                             ? displayName(item)
                                             : <a href={`/products/${item.id}`} target="_blank" rel="noopener noreferrer"
-                                                  style={{ color: '#1d4ed8', textDecoration: 'underline' }}>{displayName(item)}</a>
+                                                  style={{ color: 'inherit', textDecoration: 'none' }}>{displayName(item)}</a>
                                         }
                                     </td>
                                     <td style={{ ...STYLES.tableCell, ...returnTextStyle(b.r1w) }}>
