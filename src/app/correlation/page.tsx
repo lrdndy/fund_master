@@ -529,8 +529,8 @@ export default function CorrelationBoard() {
                         )}
                     </div>
 
-                    {/* 🔥 新增：自定义标签筛选 + 重置按钮 */}
-                    <div className="flex flex-col gap-1.5">
+                    {/* 自定义标签 + 重置：跳到第二行最前（md:col-start-1） */}
+                    <div className="flex flex-col gap-1.5 md:col-start-1">
                         <label className="text-xs font-semibold text-slate-600 tracking-wide">自定义标签</label>
                         <div className="flex gap-2.5">
                             {tagsLoading ? (
