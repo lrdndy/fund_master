@@ -12,6 +12,9 @@ import {
     calculateCorrelation,
     DEFAULT_RISK_FREE,
     MetricBundle,
+    MetricPoint,
+    findAtOrBefore,
+    findAtOrAfter,
 } from '@/lib/metrics';
 import type {
     Product,
@@ -118,6 +121,30 @@ const returnTextStyle = (n: number | null): CSSProperties => {
     if (n < 0) return { color: '#16a34a' };
     return { color: '#1f2937' };
 };
+
+// 周期指标对应天数
+const PERIOD_DAYS: Record<string, number> = {
+    r1w: 7, r1m: 30, r3m: 90, r1y: 365,
+};
+
+// 计算某个期间的实际数据起止日期
+function periodDateRange(points: MetricPoint[], daysAgo: number): { start: string; end: string } | null {
+    if (points.length < 2) return null;
+    const latest = points[points.length - 1];
+    const target = new Date(latest.date.getTime() - daysAgo * 86400000);
+    const prev = findAtOrBefore(points, target);
+    if (!prev || prev.dateStr === latest.dateStr) return null;
+    return { start: prev.dateStr, end: latest.dateStr };
+}
+
+function ytdDateRange(points: MetricPoint[]): { start: string; end: string } | null {
+    if (points.length < 2) return null;
+    const latest = points[points.length - 1];
+    const yearStart = new Date(latest.date.getFullYear(), 0, 1);
+    const prev = findAtOrAfter(points, yearStart);
+    if (!prev || prev.dateStr === latest.dateStr) return null;
+    return { start: prev.dateStr, end: latest.dateStr };
+}
 
 // 相关性计算已抽到 lib/metrics.ts 的 calculateCorrelation，两个页面共用
 
@@ -495,6 +522,25 @@ export default function NetValuesManagementPage() {
         () => generateProductIndicators(chartProductList),
         [chartProductList],
     );
+
+    // 指标表格每列的日期范围（用第一个产品的净值计算，与实际计算一致）
+    const metricDateRanges = useMemo(() => {
+        if (chartProductList.length === 0) return null;
+        const pts = normalizePoints(chartProductList[0].netValues);
+        if (pts.length < 2) return null;
+        const latest = pts[pts.length - 1];
+        const s = (days: number) => {
+            const r = periodDateRange(pts, days);
+            return r ? `${r.start} ~ ${r.end}` : null;
+        };
+        const ytd = ytdDateRange(pts);
+        const full = `${pts[0].dateStr} ~ ${latest.dateStr}`;
+        return {
+            r1w: s(7), r1m: s(30), r3m: s(90), r1y: s(365),
+            rYtd: ytd ? `${ytd.start} ~ ${ytd.end}` : null,
+            overall: full,
+        };
+    }, [chartProductList]);
 
     // 多 series 对齐起跳点：取各 series 首个有效日期中"最晚"的那个作为 T0；
     // 之前各自归一会让晚成立产品的周期差异被掩盖（短周期产品因起点小看起来涨得多）。
@@ -1160,16 +1206,46 @@ export default function NetValuesManagementPage() {
                         <thead>
                         <tr>
                             <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>名称</th>
-                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>近一周</th>
-                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>近一月</th>
-                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>近三月</th>
-                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>近一年</th>
-                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>YTD</th>
-                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>累计收益</th>
-                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>年化收益</th>
-                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>最大回撤</th>
-                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>年化波动</th>
-                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>夏普</th>
+                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>
+                                近一周
+                                {metricDateRanges?.r1w && <div style={{ fontSize: 10, fontWeight: 400, color: '#9ca3af' }}>{metricDateRanges.r1w}</div>}
+                            </th>
+                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>
+                                近一月
+                                {metricDateRanges?.r1m && <div style={{ fontSize: 10, fontWeight: 400, color: '#9ca3af' }}>{metricDateRanges.r1m}</div>}
+                            </th>
+                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>
+                                近三月
+                                {metricDateRanges?.r3m && <div style={{ fontSize: 10, fontWeight: 400, color: '#9ca3af' }}>{metricDateRanges.r3m}</div>}
+                            </th>
+                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>
+                                近一年
+                                {metricDateRanges?.r1y && <div style={{ fontSize: 10, fontWeight: 400, color: '#9ca3af' }}>{metricDateRanges.r1y}</div>}
+                            </th>
+                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>
+                                YTD
+                                {metricDateRanges?.rYtd && <div style={{ fontSize: 10, fontWeight: 400, color: '#9ca3af' }}>{metricDateRanges.rYtd}</div>}
+                            </th>
+                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>
+                                累计收益
+                                {metricDateRanges?.overall && <div style={{ fontSize: 10, fontWeight: 400, color: '#9ca3af' }}>{metricDateRanges.overall}</div>}
+                            </th>
+                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>
+                                年化收益
+                                {metricDateRanges?.overall && <div style={{ fontSize: 10, fontWeight: 400, color: '#9ca3af' }}>{metricDateRanges.overall}</div>}
+                            </th>
+                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>
+                                最大回撤
+                                {metricDateRanges?.overall && <div style={{ fontSize: 10, fontWeight: 400, color: '#9ca3af' }}>{metricDateRanges.overall}</div>}
+                            </th>
+                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>
+                                年化波动
+                                {metricDateRanges?.overall && <div style={{ fontSize: 10, fontWeight: 400, color: '#9ca3af' }}>{metricDateRanges.overall}</div>}
+                            </th>
+                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>
+                                夏普
+                                {metricDateRanges?.overall && <div style={{ fontSize: 10, fontWeight: 400, color: '#9ca3af' }}>{metricDateRanges.overall}</div>}
+                            </th>
                         </tr>
                         </thead>
                         <tbody>
