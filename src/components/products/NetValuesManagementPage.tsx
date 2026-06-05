@@ -1197,11 +1197,21 @@ export default function NetValuesManagementPage() {
                             <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>单位净值</th>
                             <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>累计净值</th>
                             <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>近1周</th>
+                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>近1周超额</th>
                             <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>近1月</th>
+                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>近1月超额</th>
+                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>近三月</th>
                             <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>近1年</th>
+                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>近1年超额</th>
                             <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>YTD</th>
+                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>YTD超额</th>
+                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>累计收益</th>
+                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>年化收益</th>
                             <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>最大回撤</th>
+                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>最大回撤超额</th>
+                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>年化波动</th>
                             <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>夏普</th>
+                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>夏普超额</th>
                             <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>备注</th>
                         </tr>
                         </thead>
@@ -1276,20 +1286,50 @@ export default function NetValuesManagementPage() {
                                     <td style={{ ...STYLES.tableCell, ...returnTextStyle(b.r1w) }}>
                                         {fmtPct(b.r1w)}<SubLabel text={cellSub('r1w')} />
                                     </td>
+                                    <td style={{ ...STYLES.tableCell, ...returnTextStyle(calcExcess('r1w')) }}>
+                                        {!chartItem?.isBenchmark && !chartItem?.isIndex ? fmtPct(calcExcess('r1w')) : '—'}
+                                    </td>
                                     <td style={{ ...STYLES.tableCell, ...returnTextStyle(b.r1m) }}>
                                         {fmtPct(b.r1m)}<SubLabel text={cellSub('r1m')} />
+                                    </td>
+                                    <td style={{ ...STYLES.tableCell, ...returnTextStyle(calcExcess('r1m')) }}>
+                                        {!chartItem?.isBenchmark && !chartItem?.isIndex ? fmtPct(calcExcess('r1m')) : '—'}
+                                    </td>
+                                    <td style={{ ...STYLES.tableCell, ...returnTextStyle(b.r3m) }}>
+                                        {fmtPct(b.r3m)}<SubLabel text={cellSub('r3m')} />
                                     </td>
                                     <td style={{ ...STYLES.tableCell, ...returnTextStyle(b.r1y) }}>
                                         {fmtPct(b.r1y)}<SubLabel text={cellSub('r1y')} />
                                     </td>
+                                    <td style={{ ...STYLES.tableCell, ...returnTextStyle(calcExcess('r1y')) }}>
+                                        {!chartItem?.isBenchmark && !chartItem?.isIndex ? fmtPct(calcExcess('r1y')) : '—'}
+                                    </td>
                                     <td style={{ ...STYLES.tableCell, ...returnTextStyle(b.rYtd) }}>
                                         {fmtPct(b.rYtd)}<SubLabel text={cellSub('rYtd')} />
+                                    </td>
+                                    <td style={{ ...STYLES.tableCell, ...returnTextStyle(calcExcess('rYtd')) }}>
+                                        {!chartItem?.isBenchmark && !chartItem?.isIndex ? fmtPct(calcExcess('rYtd')) : '—'}
+                                    </td>
+                                    <td style={{ ...STYLES.tableCell, ...returnTextStyle(b.totalReturn) }}>
+                                        {fmtPct(b.totalReturn)}<SubLabel text={cellSub('totalReturn')} />
+                                    </td>
+                                    <td style={{ ...STYLES.tableCell, ...returnTextStyle(b.annRet) }}>
+                                        {fmtPct(b.annRet)}<SubLabel text={cellSub('annRet')} />
                                     </td>
                                     <td style={STYLES.tableCell}>
                                         {fmtPct(b.mdd)}<SubLabel text={cellSub('mdd')} />
                                     </td>
+                                    <td style={{ ...STYLES.tableCell, ...returnTextStyle(calcExcess('mdd')) }}>
+                                        {!chartItem?.isBenchmark && !chartItem?.isIndex ? fmtPct(calcExcess('mdd')) : '—'}
+                                    </td>
+                                    <td style={STYLES.tableCell}>
+                                        {fmtPct(b.annVol)}<SubLabel text={cellSub('annVol')} />
+                                    </td>
                                     <td style={STYLES.tableCell}>
                                         {fmtNum(b.sharpe)}<SubLabel text={cellSub('sharpe')} />
+                                    </td>
+                                    <td style={{ ...STYLES.tableCell, ...returnTextStyle(calcExcess('sharpe')) }}>
+                                        {!chartItem?.isBenchmark && !chartItem?.isIndex ? fmtNum(calcExcess('sharpe')) : '—'}
                                     </td>
                                     <td style={STYLES.tableCell}>{/* 备注占位 */}</td>
                                 </tr>
