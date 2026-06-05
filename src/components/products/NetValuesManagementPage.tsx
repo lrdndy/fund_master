@@ -1288,12 +1288,14 @@ export default function NetValuesManagementPage() {
                                     </td>
                                     <td style={{ ...STYLES.tableCell, ...returnTextStyle(calcExcess('r1w')) }}>
                                         {!chartItem?.isBenchmark && !chartItem?.isIndex ? fmtPct(calcExcess('r1w')) : '—'}
+                                        <SubLabel text={!chartItem?.isBenchmark && !chartItem?.isIndex ? cellSub('r1w') : null} />
                                     </td>
                                     <td style={{ ...STYLES.tableCell, ...returnTextStyle(b.r1m) }}>
                                         {fmtPct(b.r1m)}<SubLabel text={cellSub('r1m')} />
                                     </td>
                                     <td style={{ ...STYLES.tableCell, ...returnTextStyle(calcExcess('r1m')) }}>
                                         {!chartItem?.isBenchmark && !chartItem?.isIndex ? fmtPct(calcExcess('r1m')) : '—'}
+                                        <SubLabel text={!chartItem?.isBenchmark && !chartItem?.isIndex ? cellSub('r1m') : null} />
                                     </td>
                                     <td style={{ ...STYLES.tableCell, ...returnTextStyle(b.r3m) }}>
                                         {fmtPct(b.r3m)}<SubLabel text={cellSub('r3m')} />
@@ -1303,12 +1305,14 @@ export default function NetValuesManagementPage() {
                                     </td>
                                     <td style={{ ...STYLES.tableCell, ...returnTextStyle(calcExcess('r1y')) }}>
                                         {!chartItem?.isBenchmark && !chartItem?.isIndex ? fmtPct(calcExcess('r1y')) : '—'}
+                                        <SubLabel text={!chartItem?.isBenchmark && !chartItem?.isIndex ? cellSub('r1y') : null} />
                                     </td>
                                     <td style={{ ...STYLES.tableCell, ...returnTextStyle(b.rYtd) }}>
                                         {fmtPct(b.rYtd)}<SubLabel text={cellSub('rYtd')} />
                                     </td>
                                     <td style={{ ...STYLES.tableCell, ...returnTextStyle(calcExcess('rYtd')) }}>
                                         {!chartItem?.isBenchmark && !chartItem?.isIndex ? fmtPct(calcExcess('rYtd')) : '—'}
+                                        <SubLabel text={!chartItem?.isBenchmark && !chartItem?.isIndex ? cellSub('rYtd') : null} />
                                     </td>
                                     <td style={{ ...STYLES.tableCell, ...returnTextStyle(b.totalReturn) }}>
                                         {fmtPct(b.totalReturn)}<SubLabel text={cellSub('totalReturn')} />
@@ -1321,6 +1325,7 @@ export default function NetValuesManagementPage() {
                                     </td>
                                     <td style={{ ...STYLES.tableCell, ...returnTextStyle(calcExcess('mdd')) }}>
                                         {!chartItem?.isBenchmark && !chartItem?.isIndex ? fmtPct(calcExcess('mdd')) : '—'}
+                                        <SubLabel text={!chartItem?.isBenchmark && !chartItem?.isIndex ? overall : null} />
                                     </td>
                                     <td style={STYLES.tableCell}>
                                         {fmtPct(b.annVol)}<SubLabel text={cellSub('annVol')} />
@@ -1330,6 +1335,7 @@ export default function NetValuesManagementPage() {
                                     </td>
                                     <td style={{ ...STYLES.tableCell, ...returnTextStyle(calcExcess('sharpe')) }}>
                                         {!chartItem?.isBenchmark && !chartItem?.isIndex ? fmtNum(calcExcess('sharpe')) : '—'}
+                                        <SubLabel text={!chartItem?.isBenchmark && !chartItem?.isIndex ? overall : null} />
                                     </td>
                                     <td style={STYLES.tableCell}>{/* 备注占位 */}</td>
                                 </tr>
