@@ -115,6 +115,11 @@ const fmtNum = (n: number | null, digits = 2): string => {
     return n.toFixed(digits);
 };
 
+/** 数值下方灰色小字 */
+function SubLabel({ text }: { text: string | null }) {
+    return text ? <div style={{ fontSize: 10, color: '#9ca3af', lineHeight: 1.3, marginTop: 1 }}>{text}</div> : null;
+}
+
 const returnTextStyle = (n: number | null): CSSProperties => {
     if (n === null || n === undefined || Number.isNaN(n)) return { color: '#9ca3af' };
     if (n > 0) return { color: '#dc2626' };
@@ -522,25 +527,6 @@ export default function NetValuesManagementPage() {
         () => generateProductIndicators(chartProductList),
         [chartProductList],
     );
-
-    // 指标表格每列的日期范围（用第一个产品的净值计算，与实际计算一致）
-    const metricDateRanges = useMemo(() => {
-        if (chartProductList.length === 0) return null;
-        const pts = normalizePoints(chartProductList[0].netValues);
-        if (pts.length < 2) return null;
-        const latest = pts[pts.length - 1];
-        const s = (days: number) => {
-            const r = periodDateRange(pts, days);
-            return r ? `${r.start} ~ ${r.end}` : null;
-        };
-        const ytd = ytdDateRange(pts);
-        const full = `${pts[0].dateStr} ~ ${latest.dateStr}`;
-        return {
-            r1w: s(7), r1m: s(30), r3m: s(90), r1y: s(365),
-            rYtd: ytd ? `${ytd.start} ~ ${ytd.end}` : null,
-            overall: full,
-        };
-    }, [chartProductList]);
 
     // 多 series 对齐起跳点：取各 series 首个有效日期中"最晚"的那个作为 T0；
     // 之前各自归一会让晚成立产品的周期差异被掩盖（短周期产品因起点小看起来涨得多）。
@@ -1206,64 +1192,67 @@ export default function NetValuesManagementPage() {
                         <thead>
                         <tr>
                             <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>名称</th>
-                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>
-                                近一周
-                                {metricDateRanges?.r1w && <div style={{ fontSize: 10, fontWeight: 400, color: '#9ca3af' }}>{metricDateRanges.r1w}</div>}
-                            </th>
-                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>
-                                近一月
-                                {metricDateRanges?.r1m && <div style={{ fontSize: 10, fontWeight: 400, color: '#9ca3af' }}>{metricDateRanges.r1m}</div>}
-                            </th>
-                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>
-                                近三月
-                                {metricDateRanges?.r3m && <div style={{ fontSize: 10, fontWeight: 400, color: '#9ca3af' }}>{metricDateRanges.r3m}</div>}
-                            </th>
-                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>
-                                近一年
-                                {metricDateRanges?.r1y && <div style={{ fontSize: 10, fontWeight: 400, color: '#9ca3af' }}>{metricDateRanges.r1y}</div>}
-                            </th>
-                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>
-                                YTD
-                                {metricDateRanges?.rYtd && <div style={{ fontSize: 10, fontWeight: 400, color: '#9ca3af' }}>{metricDateRanges.rYtd}</div>}
-                            </th>
-                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>
-                                累计收益
-                                {metricDateRanges?.overall && <div style={{ fontSize: 10, fontWeight: 400, color: '#9ca3af' }}>{metricDateRanges.overall}</div>}
-                            </th>
-                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>
-                                年化收益
-                                {metricDateRanges?.overall && <div style={{ fontSize: 10, fontWeight: 400, color: '#9ca3af' }}>{metricDateRanges.overall}</div>}
-                            </th>
-                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>
-                                最大回撤
-                                {metricDateRanges?.overall && <div style={{ fontSize: 10, fontWeight: 400, color: '#9ca3af' }}>{metricDateRanges.overall}</div>}
-                            </th>
-                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>
-                                年化波动
-                                {metricDateRanges?.overall && <div style={{ fontSize: 10, fontWeight: 400, color: '#9ca3af' }}>{metricDateRanges.overall}</div>}
-                            </th>
-                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>
-                                夏普
-                                {metricDateRanges?.overall && <div style={{ fontSize: 10, fontWeight: 400, color: '#9ca3af' }}>{metricDateRanges.overall}</div>}
-                            </th>
+                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>近一周</th>
+                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>近一月</th>
+                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>近三月</th>
+                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>近一年</th>
+                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>YTD</th>
+                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>累计收益</th>
+                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>年化收益</th>
+                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>最大回撤</th>
+                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>年化波动</th>
+                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>夏普</th>
                         </tr>
                         </thead>
                         <tbody>
                         {productIndicators.map((item, i) => {
                             const b = item.bundle;
+                            // 计算每行各指标的日期范围
+                            const pts = normalizePoints(chartProductList[i]?.netValues ?? []);
+                            const s = (days: number) => {
+                                const r = periodDateRange(pts, days);
+                                return r ? `${r.start} ~ ${r.end}` : null;
+                            };
+                            const ytd = ytdDateRange(pts);
+                            const overall = pts.length >= 2 ? `${pts[0].dateStr} ~ ${pts[pts.length - 1].dateStr}` : null;
+                            const cellSub = (key: string) => {
+                                if (key in PERIOD_DAYS) return s(PERIOD_DAYS[key]);
+                                if (key === 'rYtd') return ytd ? `${ytd.start} ~ ${ytd.end}` : null;
+                                return overall;
+                            };
                             return (
                                 <tr key={i} style={item.isBenchmark ? STYLES.benchmarkRow : undefined}>
                                     <td style={STYLES.tableCell}>{displayName(item)}</td>
-                                    <td style={{ ...STYLES.tableCell, ...returnTextStyle(b.r1w) }}>{fmtPct(b.r1w)}</td>
-                                    <td style={{ ...STYLES.tableCell, ...returnTextStyle(b.r1m) }}>{fmtPct(b.r1m)}</td>
-                                    <td style={{ ...STYLES.tableCell, ...returnTextStyle(b.r3m) }}>{fmtPct(b.r3m)}</td>
-                                    <td style={{ ...STYLES.tableCell, ...returnTextStyle(b.r1y) }}>{fmtPct(b.r1y)}</td>
-                                    <td style={{ ...STYLES.tableCell, ...returnTextStyle(b.rYtd) }}>{fmtPct(b.rYtd)}</td>
-                                    <td style={{ ...STYLES.tableCell, ...returnTextStyle(b.totalReturn) }}>{fmtPct(b.totalReturn)}</td>
-                                    <td style={{ ...STYLES.tableCell, ...returnTextStyle(b.annRet) }}>{fmtPct(b.annRet)}</td>
-                                    <td style={STYLES.tableCell}>{fmtPct(b.mdd)}</td>
-                                    <td style={STYLES.tableCell}>{fmtPct(b.annVol)}</td>
-                                    <td style={STYLES.tableCell}>{fmtNum(b.sharpe)}</td>
+                                    <td style={{ ...STYLES.tableCell, ...returnTextStyle(b.r1w) }}>
+                                        {fmtPct(b.r1w)}<SubLabel text={cellSub('r1w')} />
+                                    </td>
+                                    <td style={{ ...STYLES.tableCell, ...returnTextStyle(b.r1m) }}>
+                                        {fmtPct(b.r1m)}<SubLabel text={cellSub('r1m')} />
+                                    </td>
+                                    <td style={{ ...STYLES.tableCell, ...returnTextStyle(b.r3m) }}>
+                                        {fmtPct(b.r3m)}<SubLabel text={cellSub('r3m')} />
+                                    </td>
+                                    <td style={{ ...STYLES.tableCell, ...returnTextStyle(b.r1y) }}>
+                                        {fmtPct(b.r1y)}<SubLabel text={cellSub('r1y')} />
+                                    </td>
+                                    <td style={{ ...STYLES.tableCell, ...returnTextStyle(b.rYtd) }}>
+                                        {fmtPct(b.rYtd)}<SubLabel text={cellSub('rYtd')} />
+                                    </td>
+                                    <td style={{ ...STYLES.tableCell, ...returnTextStyle(b.totalReturn) }}>
+                                        {fmtPct(b.totalReturn)}<SubLabel text={cellSub('totalReturn')} />
+                                    </td>
+                                    <td style={{ ...STYLES.tableCell, ...returnTextStyle(b.annRet) }}>
+                                        {fmtPct(b.annRet)}<SubLabel text={cellSub('annRet')} />
+                                    </td>
+                                    <td style={STYLES.tableCell}>
+                                        {fmtPct(b.mdd)}<SubLabel text={cellSub('mdd')} />
+                                    </td>
+                                    <td style={STYLES.tableCell}>
+                                        {fmtPct(b.annVol)}<SubLabel text={cellSub('annVol')} />
+                                    </td>
+                                    <td style={STYLES.tableCell}>
+                                        {fmtNum(b.sharpe)}<SubLabel text={cellSub('sharpe')} />
+                                    </td>
                                 </tr>
                             );
                         })}
