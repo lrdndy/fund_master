@@ -2,6 +2,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { useSidebar } from '@/contexts/SidebarContext';
 
 interface NavbarProps {
     className?: string;
@@ -12,6 +13,7 @@ export default function Navbar({ className = '' }: NavbarProps) {
     const [isMenuOpen, setIsMenuOpen] = useState(false);
     const [token, setToken] = useState<string | null>(null);
     const [isClient, setIsClient] = useState(false);
+    const sidebar = useSidebar();
 
     useEffect(() => {
         const storedToken = localStorage.getItem('fundAdminToken');
@@ -35,12 +37,31 @@ export default function Navbar({ className = '' }: NavbarProps) {
     return (
         <nav className={`bg-white px-4 py-3 md:px-6 h-16 flex items-center ${className}`}>
             <div className="flex w-full items-center justify-between">
-                {/* Logo 可点击回主页 */}
-                <div
-                    onClick={goHome}
-                    className="cursor-pointer transition-colors hover:text-blue-600"
-                >
-                    <h1 className="text-xl font-bold text-blue-800">China Pro Hedgie ♟️ 🎲 🀄</h1>
+                <div className="flex items-center gap-3">
+                    {/* 侧边栏切换按钮 */}
+                    <button
+                        onClick={sidebar.toggle}
+                        className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-600 transition"
+                        title={sidebar.open ? '收起侧边栏' : '展开侧边栏'}
+                    >
+                        {sidebar.open ? (
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
+                            </svg>
+                        ) : (
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 5l7 7-7 7M5 5l7 7-7 7" />
+                            </svg>
+                        )}
+                    </button>
+
+                    {/* Logo 可点击回主页 */}
+                    <div
+                        onClick={goHome}
+                        className="cursor-pointer transition-colors hover:text-blue-600"
+                    >
+                        <h1 className="text-xl font-bold text-blue-800">China Pro Hedgie ♟️ 🎲 🀄</h1>
+                    </div>
                 </div>
 
                 {/* 用户区域 */}
