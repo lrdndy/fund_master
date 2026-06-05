@@ -556,7 +556,9 @@ export default function NetValuesManagementPage() {
 
         const { excessSeries, baseName } = buildExcessSeries(alignT0);
         const mainSeries = (!showExcessOnly || !excessSeries.length) ? series : [];
-        const activeExcessSeries = excessSeries;
+        const activeExcessSeries = showExcessOnly
+            ? excessSeries.map(s => ({ ...s, yAxisIndex: 0 }))
+            : excessSeries;
         const sub = [
             alignT0 ? `对齐共同起跳日：${alignT0}` : '',
             activeExcessSeries.length ? `超额基准：${baseName}（右轴虚线）` : '',
@@ -611,7 +613,9 @@ export default function NetValuesManagementPage() {
 
         const { excessSeries, baseName } = buildExcessSeries(alignT0);
         const mainSeries = (!showExcessOnly || !excessSeries.length) ? series : [];
-        const activeExcessSeries = excessSeries;
+        const activeExcessSeries = showExcessOnly
+            ? excessSeries.map(s => ({ ...s, yAxisIndex: 0 }))
+            : excessSeries;
         const sub = [
             alignT0 ? `对齐共同起跳日：${alignT0}` : '',
             activeExcessSeries.length ? `超额基准：${baseName}（右轴虚线）` : '',
