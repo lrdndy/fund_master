@@ -26,6 +26,15 @@ export interface CustomTag {
     create_time: string;
     update_time: string;
 }
+
+export interface CustomTagProduct {
+    id: number;
+    custom_tag: number;
+    product: number;
+    tag_name: string;
+    product_name: string;
+    create_time: string;
+}
 export interface QuantType {
     id: number;
     quant_name: string;

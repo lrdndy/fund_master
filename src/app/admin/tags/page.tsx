@@ -1,10 +1,10 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import {
-    CycleTag, QuantType, AlgorithmType, StrategyType, FofOwnTag, CustomTag,
+    CycleTag, QuantType, AlgorithmType, StrategyType, FofOwnTag, CustomTag, CustomTagProduct,
 } from '@/lib/types';
-import { tagApi } from '@/lib/api';
+import { tagApi, productApi } from '@/lib/api';
 import useProductTags from '@/hooks/useProductTags';
 import useAuth from '@/hooks/useAuth';
 
@@ -63,6 +63,14 @@ export default function AdminTagManager() {
 
     // 🔥 修复：类型明确，禁用 any
     const [selectedParent, setSelectedParent] = useState<CustomTag | null>(null);
+
+    // 产品管理 modal
+    const [productModalOpen, setProductModalOpen] = useState(false);
+    const [productModalTag, setProductModalTag] = useState<CustomTag | null>(null);
+    const [tagProducts, setTagProducts] = useState<CustomTagProduct[]>([]);
+    const [allProducts, setAllProducts] = useState<{ id: number; product_name: string }[]>([]);
+    const [productModalLoading, setProductModalLoading] = useState(false);
+    const [productSearch, setProductSearch] = useState('');
 
     const [formData, setFormData] = useState<TagFormData>({
         name: '',
@@ -176,6 +184,13 @@ export default function AdminTagManager() {
                             title={`把'${tag.tag_name}'下的所有产品填进产品对比页`}
                         >
                             对比
+                        </button>
+                        <button
+                            onClick={() => openProductModal(tag)}
+                            className="px-3 py-1.5 text-xs bg-amber-50 text-amber-700 rounded border border-amber-200 hover:bg-amber-100"
+                            title={`管理'${tag.tag_name}'下的产品`}
+                        >
+                            产品
                         </button>
                         <button
                             onClick={() => openModal('add', 'custom', undefined, tag)}
@@ -344,6 +359,46 @@ export default function AdminTagManager() {
             setOperateLoading(false);
         }
     };
+
+    // 打开产品管理 modal
+    const openProductModal = useCallback(async (tag: CustomTag) => {
+        setProductModalTag(tag);
+        setProductSearch('');
+        setProductModalOpen(true);
+        setProductModalLoading(true);
+        try {
+            const [prodRes, tagProdRes] = await Promise.all([
+                productApi.getProducts({ page_size: '2000', lite: '1' }),
+                tagApi.getCustomTagProducts(tag.id),
+            ]);
+            setAllProducts(prodRes.results ?? []);
+            setTagProducts(tagProdRes.results ?? []);
+        } catch {
+            setOperateError('加载产品数据失败');
+        } finally {
+            setProductModalLoading(false);
+        }
+    }, []);
+
+    const isTagProduct = useCallback((productId: number) => {
+        return tagProducts.some(tp => tp.product === productId);
+    }, [tagProducts]);
+
+    const toggleTagProduct = useCallback(async (productId: number) => {
+        if (!productModalTag) return;
+        const existing = tagProducts.find(tp => tp.product === productId);
+        try {
+            if (existing) {
+                await tagApi.deleteCustomTagProduct(existing.id);
+                setTagProducts(prev => prev.filter(tp => tp.id !== existing.id));
+            } else {
+                const newRel = await tagApi.createCustomTagProduct(productModalTag.id, productId);
+                setTagProducts(prev => [...prev, newRel]);
+            }
+        } catch {
+            setOperateError('操作失败');
+        }
+    }, [productModalTag, tagProducts]);
 
     if (authLoading) return <div className="container mx-auto py-10 text-center">权限验证中...</div>;
     if (hasWritePermission === false) return <div className="container mx-auto py-10 text-center">无权限访问</div>;
@@ -669,6 +724,68 @@ export default function AdminTagManager() {
                 .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
                 .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
             `}</style>
+
+            {/* 产品管理 modal */}
+            {productModalOpen && productModalTag && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+                    <div className="bg-white rounded-xl w-full max-w-2xl p-6 shadow-2xl max-h-[80vh] flex flex-col">
+                        <h2 className="text-xl font-bold mb-1 flex items-center gap-2">
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
+                            </svg>
+                            管理产品 - {productModalTag.tag_name}
+                        </h2>
+                        <p className="text-xs text-slate-500 mb-4">勾选/取消勾选产品以分配或移除标签</p>
+
+                        <input
+                            type="text"
+                            value={productSearch}
+                            onChange={e => setProductSearch(e.target.value)}
+                            placeholder="搜索产品名称..."
+                            className="mb-4 px-4 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                        />
+
+                        <div className="flex-1 overflow-y-auto space-y-1 min-h-0">
+                            {productModalLoading ? (
+                                <div className="flex items-center justify-center h-32 text-slate-500 text-sm">加载中...</div>
+                            ) : allProducts.length === 0 ? (
+                                <div className="flex items-center justify-center h-32 text-slate-500 text-sm">暂无产品</div>
+                            ) : (
+                                allProducts
+                                    .filter(p => !productSearch || p.product_name.toLowerCase().includes(productSearch.toLowerCase()))
+                                    .map(p => {
+                                        const checked = isTagProduct(p.id);
+                                        return (
+                                            <label
+                                                key={p.id}
+                                                className={`flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer transition text-sm ${
+                                                    checked ? 'bg-amber-50 border border-amber-200' : 'hover:bg-slate-50 border border-transparent'
+                                                }`}
+                                            >
+                                                <input
+                                                    type="checkbox"
+                                                    checked={checked}
+                                                    onChange={() => toggleTagProduct(p.id)}
+                                                    className="accent-amber-600"
+                                                />
+                                                <span className={checked ? 'font-medium text-amber-900' : 'text-slate-700'}>{p.product_name}</span>
+                                            </label>
+                                        );
+                                    })
+                            )}
+                        </div>
+
+                        <div className="flex justify-end mt-4 pt-3 border-t border-slate-100">
+                            <button
+                                onClick={() => setProductModalOpen(false)}
+                                className="px-4 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 hover:bg-slate-100 transition"
+                            >
+                                关闭
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
