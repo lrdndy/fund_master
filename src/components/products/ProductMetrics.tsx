@@ -316,38 +316,44 @@ export default function ProductMetrics({
                                         </td>
                                     </tr>
                                 )}
-                                {excessBundles.map(eb => (
-                                    <tr key={`ex-${eb.name}`} className="border-t border-gray-100">
-                                        <td className="px-3 py-2 text-gray-600 pl-6 text-xs">区间超额收益</td>
-                                        <td className="px-3 py-2 text-right">—</td>
-                                        {benchmarkBundles.map(b => (
-                                            <td key={b.name} className="px-3 py-2 text-right">
-                                                {b.name === eb.name ? (
-                                                    <>
-                                                        <PctCell value={eb.excessReturn} />
-                                                        <div className="text-[10px] text-gray-400 mt-0.5 font-mono">{eb.start} → {eb.end}</div>
-                                                    </>
-                                                ) : <span className="text-gray-300">—</span>}
-                                            </td>
-                                        ))}
-                                    </tr>
-                                ))}
-                                {excessBundles.map(eb => (
-                                    <tr key={`ex-mdd-${eb.name}`} className="border-t border-gray-100">
-                                        <td className="px-3 py-2 text-gray-600 pl-6 text-xs">超额区间最大回撤</td>
-                                        <td className="px-3 py-2 text-right">—</td>
-                                        {benchmarkBundles.map(b => (
-                                            <td key={b.name} className="px-3 py-2 text-right">
-                                                {b.name === eb.name ? (
-                                                    <>
-                                                        <PctCell value={eb.excessMdd} />
-                                                        <div className="text-[10px] text-gray-400 mt-0.5 font-mono">{eb.start} → {eb.end}</div>
-                                                    </>
-                                                ) : <span className="text-gray-300">—</span>}
-                                            </td>
-                                        ))}
-                                    </tr>
-                                ))}
+                                {excessBundles.length > 0 && (
+                                    <>
+                                        <tr className="border-t border-gray-100">
+                                            <td className="px-3 py-2 text-gray-600 pl-6 text-xs">区间超额收益</td>
+                                            <td className="px-3 py-2 text-right text-gray-300">—</td>
+                                            {benchmarkBundles.map(b => {
+                                                const eb = excessBundles.find(e => e.name === b.name);
+                                                return (
+                                                    <td key={b.name} className="px-3 py-2 text-right">
+                                                        {eb ? (
+                                                            <>
+                                                                <PctCell value={eb.excessReturn} />
+                                                                <div className="text-[10px] text-gray-400 mt-0.5 font-mono">{eb.start} → {eb.end}</div>
+                                                            </>
+                                                        ) : <span className="text-gray-300">—</span>}
+                                                    </td>
+                                                );
+                                            })}
+                                        </tr>
+                                        <tr className="border-t border-gray-100">
+                                            <td className="px-3 py-2 text-gray-600 pl-6 text-xs">超额区间最大回撤</td>
+                                            <td className="px-3 py-2 text-right text-gray-300">—</td>
+                                            {benchmarkBundles.map(b => {
+                                                const eb = excessBundles.find(e => e.name === b.name);
+                                                return (
+                                                    <td key={b.name} className="px-3 py-2 text-right">
+                                                        {eb ? (
+                                                            <>
+                                                                <PctCell value={eb.excessMdd} />
+                                                                <div className="text-[10px] text-gray-400 mt-0.5 font-mono">{eb.start} → {eb.end}</div>
+                                                            </>
+                                                        ) : <span className="text-gray-300">—</span>}
+                                                    </td>
+                                                );
+                                            })}
+                                        </tr>
+                                    </>
+                                )}
                             </tbody>
                         </table>
                     </div>
