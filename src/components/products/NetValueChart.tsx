@@ -19,6 +19,8 @@ interface NetValueChartProps {
     normalize?: boolean;
     /** 指定某条 series 的 name 作基准后，其它 series 叠加'相对它的超额收益'到次坐标轴（虚线）；需配合 normalize */
     excessBaseName?: string;
+    /** 多基准场景：传入所有基准的 name；超额 = 非基准 series × 每个基准画一条线（'产品 vs 基准'语义）；优先级高于 excessBaseName */
+    excessBaseNames?: string[];
 }
 
 interface ChartTooltipParam {
@@ -59,6 +61,7 @@ export default function NetValueChart({
     loading = false,
     normalize = false,
     excessBaseName,
+    excessBaseNames,
 }: NetValueChartProps) {
     const chartRef = useRef<HTMLDivElement>(null);
     const chartInstance = useRef<echarts.ECharts | null>(null);
@@ -111,32 +114,39 @@ export default function NetValueChart({
                 : {}),
         }));
 
-        // 超额收益叠加：base series 归一化后，其它 series 在共同日期算 (s - base)*100 (%)，走次坐标轴
+        // 超额收益叠加：base series 归一化后，'非基准产品' × '每个基准' 笛卡尔积画线
+        // 优先用 excessBaseNames（多基准）；fallback excessBaseName（向后兼容单基准）
         let hasExcess = false;
-        if (excessBaseName && normalize) {
-            const base = prepared.find(s => s.name === excessBaseName);
-            if (base) {
+        const baseNameSet = new Set(
+            excessBaseNames && excessBaseNames.length > 0
+                ? excessBaseNames
+                : excessBaseName ? [excessBaseName] : [],
+        );
+        if (baseNameSet.size > 0 && normalize) {
+            const bases = prepared.filter(s => baseNameSet.has(s.name));
+            const products = prepared.filter(s => !baseNameSet.has(s.name));
+            let lineIdx = 0;
+            for (const base of bases) {
                 const baseMap = new Map(base.points.map(p => [p.date, p.value]));
-                prepared
-                    .filter(s => s.name !== excessBaseName)
-                    .forEach((s, idx) => {
-                        const data = s.points
-                            .filter(p => baseMap.has(p.date))
-                            .map(p => [p.date, parseFloat(((p.value - baseMap.get(p.date)!) * 100).toFixed(2))] as [string, number]);
-                        if (data.length === 0) return;
-                        hasExcess = true;
-                        const color = s.color ?? DEFAULT_COLORS[idx % DEFAULT_COLORS.length];
-                        echartsSeries.push({
-                            name: `${s.name} 超额`,
-                            type: 'line',
-                            yAxisIndex: 1,
-                            data,
-                            smooth: true,
-                            showSymbol: false,
-                            lineStyle: { color, width: 1.5, type: 'dashed' },
-                            itemStyle: { color },
-                        } as EChartOption.SeriesLine);
-                    });
+                for (const s of products) {
+                    const data = s.points
+                        .filter(p => baseMap.has(p.date))
+                        .map(p => [p.date, parseFloat(((p.value - baseMap.get(p.date)!) * 100).toFixed(2))] as [string, number]);
+                    if (data.length === 0) continue;
+                    hasExcess = true;
+                    const color = s.color ?? DEFAULT_COLORS[lineIdx % DEFAULT_COLORS.length];
+                    echartsSeries.push({
+                        name: `${s.name} vs ${base.name}`,
+                        type: 'line',
+                        yAxisIndex: 1,
+                        data,
+                        smooth: true,
+                        showSymbol: false,
+                        lineStyle: { color, width: 1.5, type: 'dashed' },
+                        itemStyle: { color },
+                    } as EChartOption.SeriesLine);
+                    lineIdx++;
+                }
             }
         }
 
@@ -206,7 +216,7 @@ export default function NetValueChart({
         };
 
         chartInstance.current.setOption(option, true);
-    }, [series, title, loading, normalize, excessBaseName]);
+    }, [series, title, loading, normalize, excessBaseName, excessBaseNames]);
 
     if (loading) {
         return (
