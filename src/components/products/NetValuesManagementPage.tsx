@@ -45,6 +45,8 @@ interface ProductIndicator {
     isBenchmark: boolean;
     isIndex?: boolean;
     bundle: MetricBundle;
+    rangeStart?: string;  // 该产品净值首日（所有指标都基于这条数据算）
+    rangeEnd?: string;    // 该产品净值末日
 }
 
 interface CorrelationDataPoint {
@@ -98,6 +100,8 @@ const generateProductIndicators = (list: ChartProductData[]): ProductIndicator[]
         isBenchmark: item.isBenchmark,
         isIndex: item.isIndex,
         bundle: computeBundle(pts, pts, DEFAULT_RISK_FREE),
+        rangeStart: pts[0]?.dateStr,
+        rangeEnd: pts[pts.length - 1]?.dateStr,
     };
 });
 
@@ -1137,7 +1141,8 @@ export default function NetValuesManagementPage() {
                     <div style={STYLES.tableTitle}>
                         产品指标汇总
                         <span style={{ fontSize: 12, color: '#9ca3af', fontWeight: 400, marginLeft: 8 }}>
-                            （无风险利率 {(DEFAULT_RISK_FREE * 100).toFixed(1)}%，年化按 252 交易日）
+                            （无风险利率 {(DEFAULT_RISK_FREE * 100).toFixed(1)}%，年化按 252 交易日；
+                            每行指标基于该产品自身净值数据区间计算，区间见名称下方）
                         </span>
                     </div>
                     <table style={STYLES.table}>
@@ -1161,7 +1166,14 @@ export default function NetValuesManagementPage() {
                             const b = item.bundle;
                             return (
                                 <tr key={i} style={item.isBenchmark ? STYLES.benchmarkRow : undefined}>
-                                    <td style={STYLES.tableCell}>{displayName(item)}</td>
+                                    <td style={STYLES.tableCell}>
+                                        <div>{displayName(item)}</div>
+                                        {item.rangeStart && item.rangeEnd && (
+                                            <div style={{ fontSize: 10, color: '#9ca3af', fontFamily: 'monospace', marginTop: 2 }}>
+                                                {item.rangeStart} → {item.rangeEnd}
+                                            </div>
+                                        )}
+                                    </td>
                                     <td style={{ ...STYLES.tableCell, ...returnTextStyle(b.r1w) }}>{fmtPct(b.r1w)}</td>
                                     <td style={{ ...STYLES.tableCell, ...returnTextStyle(b.r1m) }}>{fmtPct(b.r1m)}</td>
                                     <td style={{ ...STYLES.tableCell, ...returnTextStyle(b.r3m) }}>{fmtPct(b.r3m)}</td>
