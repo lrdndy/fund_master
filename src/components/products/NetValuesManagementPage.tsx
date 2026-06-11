@@ -264,7 +264,7 @@ export default function NetValuesManagementPage() {
     // 超额收益：叠加到净值图和收益率图（次坐标轴虚线）；basis 用某条 series 的 id 作基准
     const [showExcess, setShowExcess] = useState(false);
     const [excessOnly, setExcessOnly] = useState(false); // 只看超额：隐藏主线，仅画超额次轴
-    const [excessBaseId, setExcessBaseId] = useState<number | null>(null);
+    // excessBaseId 已废弃：超额线改为'每个产品 × 每个基准'自动展开，不再需要单选一个 base
     const [showExcessOnly, setShowExcessOnly] = useState(false);
     const debouncedResize = useRef<(() => void) | null>(null);
 
@@ -770,37 +770,45 @@ export default function NetValuesManagementPage() {
     // 返回 { excessSeries, baseName }；showExcess 关或不足 2 条时返回空。
     const buildExcessSeries = (alignT0: string | undefined) => {
         if (!showExcess || chartProductList.length < 2) return { excessSeries: [] as Record<string, unknown>[], baseName: '' };
-        const base = chartProductList.find(p => p.id === excessBaseId)
-            ?? chartProductList.find(p => p.isBenchmark)
-            ?? chartProductList[0];
-        const baseVisible = alignT0 ? base.netValues.filter(nv => nv.date >= alignT0) : base.netValues;
-        const baseStart = baseVisible.find(nv => nv.value > 0)?.value || 1;
-        const baseMap = new Map(baseVisible.filter(nv => nv.value > 0).map(nv => [nv.date, nv.value / baseStart]));
 
-        const excessSeries = chartProductList
-            .filter(p => p.id !== base.id)
-            .map((p, i) => {
-                const s = getSeriesStyle(p.isBenchmark, i);
+        // 区分：基准 = isBenchmark / isIndex；产品 = 既不是 isBenchmark 也不是 isIndex 的 series
+        const bases = chartProductList.filter(p => p.isBenchmark || p.isIndex);
+        const products = chartProductList.filter(p => !p.isBenchmark && !p.isIndex);
+        if (bases.length === 0 || products.length === 0) {
+            return { excessSeries: [], baseName: '（缺少产品或基准）' };
+        }
+
+        // 对每个产品 × 每个基准画一条超额线；用 displayName 命名，让图例能区分
+        const excessSeries: Record<string, unknown>[] = [];
+        let seriesIdx = 0;
+        for (const base of bases) {
+            const baseVisible = alignT0 ? base.netValues.filter(nv => nv.date >= alignT0) : base.netValues;
+            const baseStart = baseVisible.find(nv => nv.value > 0)?.value || 1;
+            const baseMap = new Map(baseVisible.filter(nv => nv.value > 0).map(nv => [nv.date, nv.value / baseStart]));
+
+            for (const p of products) {
+                const s = getSeriesStyle(false, seriesIdx++);
                 const visible = alignT0 ? p.netValues.filter(nv => nv.date >= alignT0) : p.netValues;
                 const pStart = visible.find(nv => nv.value > 0)?.value || 1;
                 const data = visible
                     .filter(nv => nv.value > 0 && baseMap.has(nv.date))
                     .map(nv => [nv.date, parseFloat((((nv.value / pStart) - baseMap.get(nv.date)!) * 100).toFixed(2))]);
-                return {
-                    name: `${displayName(p)} 超额`,
+                excessSeries.push({
+                    name: `${displayName(p)} vs ${displayName(base)}`,
                     type: 'line' as const,
-                    // 只看超额模式：超额走主 Y 轴（独占画面）；叠加模式：走右侧次轴避免量级冲突
                     yAxisIndex: excessOnly ? 0 : 1,
                     smooth: true,
                     data,
-                    // 只看超额时用实线 + 加粗，看得清楚；叠加时虚线 + 细，避免遮挡主线
                     lineStyle: { color: s.lineColor, width: excessOnly ? 2 : 1.5, type: (excessOnly ? 'solid' : 'dashed') as 'solid' | 'dashed', opacity: 0.9 },
                     itemStyle: { color: s.itemColor },
                     showSymbol: false,
                     emphasis: { focus: 'series' as const },
-                };
-            });
-        return { excessSeries, baseName: displayName(base) };
+                });
+            }
+        }
+        // 文案：base name 显示所有基准名（标题副标用），多个用顿号连接
+        const baseName = bases.length === 1 ? displayName(bases[0]) : bases.map(displayName).join('、');
+        return { excessSeries, baseName };
     };
 
     // 超额次坐标轴定义（右侧，% 单位 + 0 线）
@@ -817,7 +825,7 @@ export default function NetValuesManagementPage() {
         renderDrawdown();
         renderCorrelation();
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [chartProductList, showExcess, excessBaseId, showExcessOnly]);
+    }, [chartProductList, showExcess, showExcessOnly]);
 
     // 交互方法
     const handleFilterChange = (k: keyof ProductFilterParams, v: string) => setFilters(f => ({ ...f, [k]: v }));
@@ -1154,18 +1162,8 @@ export default function NetValuesManagementPage() {
                         在净值/收益率图上叠加「超额收益」（相对基准的差值，次坐标轴虚线）
                     </label>
                     {showExcess && (
-                        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                            <span style={{ fontSize: 12, color: '#6b7280' }}>基准</span>
-                            <select
-                                value={excessBaseId ?? ''}
-                                onChange={e => setExcessBaseId(e.target.value === '' ? null : Number(e.target.value))}
-                                style={{ padding: '2px 6px', fontSize: 12, border: '1px solid #d1d5db', borderRadius: 4, background: '#fff', maxWidth: 220 }}
-                            >
-                                <option value="">自动（基准产品/第一条）</option>
-                                {chartProductList.map(p => (
-                                    <option key={p.id} value={p.id}>{displayName(p)}</option>
-                                ))}
-                            </select>
+                        <span style={{ fontSize: 12, color: '#6b7280' }}>
+                            （已选每个产品 × 每个基准画一条超额线，多基准时自动展开）
                         </span>
                     )}
                     {showExcess && (
