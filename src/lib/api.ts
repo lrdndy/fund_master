@@ -190,6 +190,19 @@ export const tagApi = {
     deleteCustomTag: async (id: number): Promise<void> => {
         await api.delete(`/custom-tags/${id}/`);
     },
+
+    // 自定义标签-产品关联
+    getCustomTagProducts: async (tagId: number): Promise<ApiResponse<import('./types').CustomTagProduct>> => {
+        const res = await api.get<ApiResponse<import('./types').CustomTagProduct>>(`/custom-tag-products/?custom_tag=${tagId}`);
+        return res.data;
+    },
+    createCustomTagProduct: async (tagId: number, productId: number): Promise<import('./types').CustomTagProduct> => {
+        const res = await api.post<import('./types').CustomTagProduct>('/custom-tag-products/', { custom_tag: tagId, product: productId });
+        return res.data;
+    },
+    deleteCustomTagProduct: async (id: number): Promise<void> => {
+        await api.delete(`/custom-tag-products/${id}/`);
+    },
 };
 
 

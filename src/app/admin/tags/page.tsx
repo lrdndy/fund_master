@@ -1,10 +1,10 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import {
-    CycleTag, QuantType, AlgorithmType, StrategyType, FofOwnTag, CustomTag,
+    CycleTag, QuantType, AlgorithmType, StrategyType, FofOwnTag, CustomTag, CustomTagProduct,
 } from '@/lib/types';
-import { tagApi } from '@/lib/api';
+import { tagApi, productApi } from '@/lib/api';
 import useProductTags from '@/hooks/useProductTags';
 import useAuth from '@/hooks/useAuth';
 
@@ -63,6 +63,14 @@ export default function AdminTagManager() {
 
     // 🔥 修复：类型明确，禁用 any
     const [selectedParent, setSelectedParent] = useState<CustomTag | null>(null);
+
+    // 产品管理 modal
+    const [productModalOpen, setProductModalOpen] = useState(false);
+    const [productModalTag, setProductModalTag] = useState<CustomTag | null>(null);
+    const [tagProducts, setTagProducts] = useState<CustomTagProduct[]>([]);
+    const [allProducts, setAllProducts] = useState<{ id: number; product_name: string }[]>([]);
+    const [productModalLoading, setProductModalLoading] = useState(false);
+    const [productSearch, setProductSearch] = useState('');
 
     const [formData, setFormData] = useState<TagFormData>({
         name: '',
@@ -176,6 +184,13 @@ export default function AdminTagManager() {
                             title={`把'${tag.tag_name}'下的所有产品填进产品对比页`}
                         >
                             对比
+                        </button>
+                        <button
+                            onClick={() => openProductModal(tag)}
+                            className="px-3 py-1.5 text-xs bg-amber-50 text-amber-700 rounded border border-amber-200 hover:bg-amber-100"
+                            title={`管理'${tag.tag_name}'下的产品`}
+                        >
+                            产品
                         </button>
                         <button
                             onClick={() => openModal('add', 'custom', undefined, tag)}
@@ -344,6 +359,46 @@ export default function AdminTagManager() {
             setOperateLoading(false);
         }
     };
+
+    // 打开产品管理 modal
+    const openProductModal = useCallback(async (tag: CustomTag) => {
+        setProductModalTag(tag);
+        setProductSearch('');
+        setProductModalOpen(true);
+        setProductModalLoading(true);
+        try {
+            const [prodRes, tagProdRes] = await Promise.all([
+                productApi.getProducts({ page_size: '2000', lite: '1' }),
+                tagApi.getCustomTagProducts(tag.id),
+            ]);
+            setAllProducts(prodRes.results ?? []);
+            setTagProducts(tagProdRes.results ?? []);
+        } catch {
+            setOperateError('加载产品数据失败');
+        } finally {
+            setProductModalLoading(false);
+        }
+    }, []);
+
+    const isTagProduct = useCallback((productId: number) => {
+        return tagProducts.some(tp => tp.product === productId);
+    }, [tagProducts]);
+
+    const toggleTagProduct = useCallback(async (productId: number) => {
+        if (!productModalTag) return;
+        const existing = tagProducts.find(tp => tp.product === productId);
+        try {
+            if (existing) {
+                await tagApi.deleteCustomTagProduct(existing.id);
+                setTagProducts(prev => prev.filter(tp => tp.id !== existing.id));
+            } else {
+                const newRel = await tagApi.createCustomTagProduct(productModalTag.id, productId);
+                setTagProducts(prev => [...prev, newRel]);
+            }
+        } catch {
+            setOperateError('操作失败');
+        }
+    }, [productModalTag, tagProducts]);
 
     if (authLoading) return <div className="container mx-auto py-10 text-center">权限验证中...</div>;
     if (hasWritePermission === false) return <div className="container mx-auto py-10 text-center">无权限访问</div>;
@@ -669,6 +724,96 @@ export default function AdminTagManager() {
                 .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
                 .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
             `}</style>
+
+            {/* 产品管理 modal */}
+            {productModalOpen && productModalTag && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+                    <div className="bg-white rounded-xl w-full max-w-3xl p-6 shadow-2xl max-h-[85vh] flex flex-col">
+                        <h2 className="text-xl font-bold mb-1 flex items-center gap-2">
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
+                            </svg>
+                            管理产品 - {productModalTag.tag_name}
+                        </h2>
+
+                        <div className="flex-1 grid grid-cols-2 gap-4 min-h-0 mt-3">
+                            {/* 已选产品 */}
+                            <div className="flex flex-col border border-slate-200 rounded-lg overflow-hidden">
+                                <div className="bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800 border-b border-slate-200 flex items-center gap-2">
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                    </svg>
+                                    已选产品
+                                    <span className="text-xs font-normal text-amber-600 ml-auto">{tagProducts.length} 个</span>
+                                </div>
+                                <div className="flex-1 overflow-y-auto p-2 space-y-1">
+                                    {productModalLoading ? (
+                                        <div className="flex items-center justify-center h-20 text-slate-400 text-xs">加载中...</div>
+                                    ) : tagProducts.length === 0 ? (
+                                        <div className="flex items-center justify-center h-20 text-slate-400 text-xs">暂无已选产品</div>
+                                    ) : (
+                                        tagProducts.map(tp => (
+                                            <div key={tp.id} className="flex items-center justify-between px-3 py-2 rounded-lg bg-amber-50 text-sm text-amber-900">
+                                                <span>{tp.product_name}</span>
+                                                <button
+                                                    onClick={() => toggleTagProduct(tp.product)}
+                                                    className="text-red-400 hover:text-red-600 text-lg leading-none ml-2"
+                                                    title="移除"
+                                                >×</button>
+                                            </div>
+                                        ))
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* 可选产品 */}
+                            <div className="flex flex-col border border-slate-200 rounded-lg overflow-hidden">
+                                <div className="bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700 border-b border-slate-200">
+                                    可选产品
+                                </div>
+                                <div className="px-3 pt-2">
+                                    <input
+                                        type="text"
+                                        value={productSearch}
+                                        onChange={e => setProductSearch(e.target.value)}
+                                        placeholder="搜索添加..."
+                                        className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                                    />
+                                </div>
+                                <div className="flex-1 overflow-y-auto p-2 space-y-1">
+                                    {productModalLoading ? (
+                                        <div className="flex items-center justify-center h-20 text-slate-400 text-xs">加载中...</div>
+                                    ) : allProducts.length === 0 ? (
+                                        <div className="flex items-center justify-center h-20 text-slate-400 text-xs">暂无产品</div>
+                                    ) : (
+                                        allProducts
+                                            .filter(p => !productSearch || p.product_name.toLowerCase().includes(productSearch.toLowerCase()))
+                                            .filter(p => !isTagProduct(p.id))
+                                            .map(p => (
+                                                <div key={p.id}
+                                                    className="flex items-center justify-between px-3 py-2 rounded-lg hover:bg-blue-50 cursor-pointer text-sm text-slate-700 transition"
+                                                    onClick={() => toggleTagProduct(p.id)}
+                                                >
+                                                    <span>{p.product_name}</span>
+                                                    <span className="text-blue-500 text-xs font-medium">+ 添加</span>
+                                                </div>
+                                            ))
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="flex justify-end mt-4 pt-3 border-t border-slate-100">
+                            <button
+                                onClick={() => setProductModalOpen(false)}
+                                className="px-4 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 hover:bg-slate-100 transition"
+                            >
+                                关闭
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

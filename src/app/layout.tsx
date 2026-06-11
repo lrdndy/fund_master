@@ -5,6 +5,7 @@ import './globals.css';
 import Navbar from '@/components/layouts/Navbar';
 import Sidebar from '@/components/layouts/Sidebar';
 import { BasketProvider } from '@/contexts/BasketContext';
+import { SidebarProvider } from '@/contexts/SidebarContext';
 
 const inter = Inter({ subsets: ['latin'] });
 
@@ -23,6 +24,7 @@ export default function RootLayout({
         {/* 用Flex布局包裹整个页面，让Navbar、Sidebar、主内容区形成整体 */}
         <body className={`${inter.className} flex flex-col min-h-screen`}>
         <BasketProvider>
+        <SidebarProvider>
             {/* 顶部Navbar（占固定高度） */}
             <Navbar className="border-b border-gray-200" />
 
@@ -36,6 +38,7 @@ export default function RootLayout({
                     {children}
                 </main>
             </div>
+        </SidebarProvider>
         </BasketProvider>
         </body>
         </html>

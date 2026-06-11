@@ -43,6 +43,7 @@ export default function ProductFilter({ tags, filters, onFilterChange }: Product
             custom: '',
             search: '',
             ordering: '',
+            latest_nv_date_min: '',
         });
     };
 
@@ -178,8 +179,19 @@ export default function ProductFilter({ tags, filters, onFilterChange }: Product
                     </select>
                 </div>
 
+                {/* 最新净值日期 >= */}
+                <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">最新净值 ≥ 日期</label>
+                    <input
+                        type="date"
+                        value={filters.latest_nv_date_min ?? ''}
+                        onChange={(e) => handleSelectChange('latest_nv_date_min', e.target.value)}
+                        className="input-field"
+                    />
+                </div>
+
                 {/* 操作按钮 */}
-                <div className="md:col-span-2 lg:col-span-2 lg:col-start-6">
+                <div className="md:col-span-2 lg:col-span-2">
                     <label className="block text-sm font-medium text-gray-700 mb-1">操作</label>
                     <div className="flex space-x-2">
                         <button onClick={handleReset} className="btn-secondary flex-1">
