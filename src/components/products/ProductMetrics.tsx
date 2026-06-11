@@ -10,9 +10,7 @@ import {
     filterRange,
     findAtOrBefore,
     findAtOrAfter,
-    maxDrawdown,
     normalizePoints,
-    totalReturn,
 } from '@/lib/metrics';
 
 export interface NamedSeries {
@@ -132,6 +130,11 @@ export default function ProductMetrics({
     const productBundle = computeBundle(productPoints, productRange, riskFreeRate);
 
     // 超额指标：对各基准分别算产品相对该基准的超额
+    // 注意：超额曲线 = 归一化产品 − 归一化基准，起点 = 0、可正可负。
+    //       totalReturn / maxDrawdown 是给'严格正、1.0 起步'的累计净值设计的，
+    //       直接喂超额数据会出 NaN（除以 0）或几百%（peak 趋近 0 时分母爆炸）。
+    //       这里改用'绝对差'：区间超额 = 末值 − 首值；超额回撤 = 历史峰值 − 当前值。
+    //       结果含义 = 累计跑赢/吐回的'百分点'，落在正常量级。
     const excessBundles = useMemo(() => {
         if (benchmarkBundles.length === 0 || productRange.length < 2) return [];
         return benchmarkBundles.map(b => {
@@ -145,12 +148,27 @@ export default function ProductMetrics({
             const excessPts: MetricPoint[] = aligned.map(p => ({
                 ...p, value: p.value - bMap.get(p.dateStr)!,
             }));
+            // 累计超额 = 末值 − 首值（首值 = 1 − 1 = 0），单位 = 归一化分；PctCell ×100 转 %
+            const excessReturn = excessPts[excessPts.length - 1].value - excessPts[0].value;
+            // 超额回撤 = 历史峰值 − 当前值（绝对峰谷差，不除以 peak 避免分母趋近 0 爆炸），返回负值
+            let peak = excessPts[0].value;
+            let mdd = 0;
+            for (const p of excessPts) {
+                if (p.value > peak) peak = p.value;
+                const dd = peak - p.value;
+                if (dd > mdd) mdd = dd;
+            }
             return {
                 name: b.name,
-                excessReturn: totalReturn(excessPts),
-                excessMdd: maxDrawdown(excessPts),
+                excessReturn,
+                excessMdd: -mdd,
+                start: excessPts[0].dateStr,
+                end: excessPts[excessPts.length - 1].dateStr,
             };
-        }).filter(Boolean) as { name: string; excessReturn: number | null; excessMdd: number | null }[];
+        }).filter(Boolean) as {
+            name: string; excessReturn: number | null; excessMdd: number | null;
+            start: string; end: string;
+        }[];
     }, [benchmarkBundles, productRange, rangeStart, rangeEnd]);
 
     const hasRange = Boolean(rangeStart || rangeEnd);
@@ -277,7 +295,12 @@ export default function ProductMetrics({
                                 ))}
                                 {excessBundles.length > 0 && (
                                     <tr className="border-t border-gray-200 bg-amber-50/50">
-                                        <td className="px-3 py-2 text-gray-700 font-medium" colSpan={1 + benchmarkBundles.length}>超额收益（相对基准）</td>
+                                        <td className="px-3 py-2 text-gray-700 font-medium" colSpan={1 + benchmarkBundles.length}>
+                                            超额收益（相对基准）
+                                            <span className="ml-2 text-[11px] text-gray-500 font-normal">
+                                                单位：百分点（产品归一 − 基准归一）；区间见各基准列下方
+                                            </span>
+                                        </td>
                                     </tr>
                                 )}
                                 {excessBundles.map(eb => (
@@ -286,9 +309,12 @@ export default function ProductMetrics({
                                         <td className="px-3 py-2 text-right">—</td>
                                         {benchmarkBundles.map(b => (
                                             <td key={b.name} className="px-3 py-2 text-right">
-                                                {b.name === eb.name
-                                                    ? <PctCell value={eb.excessReturn} />
-                                                    : <span className="text-gray-300">—</span>}
+                                                {b.name === eb.name ? (
+                                                    <>
+                                                        <PctCell value={eb.excessReturn} />
+                                                        <div className="text-[10px] text-gray-400 mt-0.5 font-mono">{eb.start} → {eb.end}</div>
+                                                    </>
+                                                ) : <span className="text-gray-300">—</span>}
                                             </td>
                                         ))}
                                     </tr>
@@ -299,9 +325,12 @@ export default function ProductMetrics({
                                         <td className="px-3 py-2 text-right">—</td>
                                         {benchmarkBundles.map(b => (
                                             <td key={b.name} className="px-3 py-2 text-right">
-                                                {b.name === eb.name
-                                                    ? <PctCell value={eb.excessMdd} />
-                                                    : <span className="text-gray-300">—</span>}
+                                                {b.name === eb.name ? (
+                                                    <>
+                                                        <PctCell value={eb.excessMdd} />
+                                                        <div className="text-[10px] text-gray-400 mt-0.5 font-mono">{eb.start} → {eb.end}</div>
+                                                    </>
+                                                ) : <span className="text-gray-300">—</span>}
                                             </td>
                                         ))}
                                     </tr>
