@@ -229,6 +229,7 @@ export default function NetValuesManagementPage() {
     const corrChart = useRef<echarts.ECharts | null>(null);
     // 超额收益：叠加到净值图和收益率图（次坐标轴虚线）；basis 用某条 series 的 id 作基准
     const [showExcess, setShowExcess] = useState(false);
+    const [excessOnly, setExcessOnly] = useState(false); // 只看超额：隐藏主线，仅画超额次轴
     const [excessBaseId, setExcessBaseId] = useState<number | null>(null);
     const debouncedResize = useRef<(() => void) | null>(null);
 
@@ -741,10 +742,12 @@ export default function NetValuesManagementPage() {
                 return {
                     name: `${displayName(p)} 超额`,
                     type: 'line' as const,
-                    yAxisIndex: 1,
+                    // 只看超额模式：超额走主 Y 轴（独占画面）；叠加模式：走右侧次轴避免量级冲突
+                    yAxisIndex: excessOnly ? 0 : 1,
                     smooth: true,
                     data,
-                    lineStyle: { color: s.lineColor, width: 1.5, type: 'dashed' as const, opacity: 0.9 },
+                    // 只看超额时用实线 + 加粗，看得清楚；叠加时虚线 + 细，避免遮挡主线
+                    lineStyle: { color: s.lineColor, width: excessOnly ? 2 : 1.5, type: (excessOnly ? 'solid' : 'dashed') as 'solid' | 'dashed', opacity: 0.9 },
                     itemStyle: { color: s.itemColor },
                     showSymbol: false,
                     emphasis: { focus: 'series' as const },
