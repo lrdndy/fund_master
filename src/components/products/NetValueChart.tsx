@@ -21,6 +21,8 @@ interface NetValueChartProps {
     excessBaseName?: string;
     /** 多基准场景：传入所有基准的 name；超额 = 非基准 series × 每个基准画一条线（'产品 vs 基准'语义）；优先级高于 excessBaseName */
     excessBaseNames?: string[];
+    /** 只看超额：隐藏累计净值主线，超额走主坐标轴（实线加粗）；需配合 excessBaseName(s) */
+    excessOnly?: boolean;
 }
 
 interface ChartTooltipParam {
@@ -62,6 +64,7 @@ export default function NetValueChart({
     normalize = false,
     excessBaseName,
     excessBaseNames,
+    excessOnly = false,
 }: NetValueChartProps) {
     const chartRef = useRef<HTMLDivElement>(null);
     const chartInstance = useRef<echarts.ECharts | null>(null);
@@ -92,7 +95,8 @@ export default function NetValueChart({
 
         if (prepared.length === 0) return;
 
-        const echartsSeries: EChartOption.SeriesLine[] = prepared.map((s, idx) => ({
+        // excessOnly 模式下不画累计净值主线；excessOnly=false 时正常画
+        const echartsSeries: EChartOption.SeriesLine[] = excessOnly ? [] : prepared.map((s, idx) => ({
             name: s.name,
             type: 'line',
             data: s.points.map(p => [p.date, p.value] as [string, number]),
@@ -138,11 +142,13 @@ export default function NetValueChart({
                     echartsSeries.push({
                         name: `${s.name} vs ${base.name}`,
                         type: 'line',
-                        yAxisIndex: 1,
+                        // excessOnly：超额走主轴独占；否则走次轴叠加避免量级冲突
+                        yAxisIndex: excessOnly ? 0 : 1,
                         data,
                         smooth: true,
                         showSymbol: false,
-                        lineStyle: { color, width: 1.5, type: 'dashed' },
+                        // excessOnly：实线加粗；叠加模式：虚线细些避免遮主线
+                        lineStyle: { color, width: excessOnly ? 2 : 1.5, type: excessOnly ? 'solid' : 'dashed' },
                         itemStyle: { color },
                     } as EChartOption.SeriesLine);
                     lineIdx++;
@@ -189,7 +195,14 @@ export default function NetValueChart({
                 axisLine: { lineStyle: { color: '#e2e8f0' } },
                 splitLine: { show: false },
             },
-            yAxis: (hasExcess
+            yAxis: (excessOnly && hasExcess
+                ? {
+                    type: 'value', scale: true, name: '超额%',
+                    axisLabel: { color: '#64748b', fontSize: 11, formatter: (v: number) => v.toFixed(1) },
+                    axisLine: { lineStyle: { color: '#e2e8f0' } },
+                    splitLine: { lineStyle: { color: '#f1f5f9' } },
+                }
+                : hasExcess
                 ? [
                     {
                         type: 'value', scale: true,
@@ -216,7 +229,7 @@ export default function NetValueChart({
         };
 
         chartInstance.current.setOption(option, true);
-    }, [series, title, loading, normalize, excessBaseName, excessBaseNames]);
+    }, [series, title, loading, normalize, excessBaseName, excessBaseNames, excessOnly]);
 
     if (loading) {
         return (
