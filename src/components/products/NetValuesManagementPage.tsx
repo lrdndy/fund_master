@@ -514,8 +514,14 @@ export default function NetValuesManagementPage() {
                 });
             }
 
-            setChartProductList(list);
-            setChartError(list.length ? null : '暂无有效数据');
+            // 产品在前、基准产品居中、基准指数最后（让图表线和指标表行序保持一致：产品 → 基准）
+            const sortedList: ChartProductData[] = [
+                ...list.filter(p => !p.isBenchmark && !p.isIndex),
+                ...list.filter(p => p.isBenchmark && !p.isIndex),
+                ...list.filter(p => p.isIndex),
+            ];
+            setChartProductList(sortedList);
+            setChartError(sortedList.length ? null : '暂无有效数据');
             setChartLoading(false);
         };
 
@@ -876,6 +882,186 @@ export default function NetValuesManagementPage() {
         return () => { cancelled = true; };
     }, [customTagParam]);
 
+    // 指标表：作"超额"对比的基准列表（基准产品 + 基准指数）
+    const excessBases = chartProductList.filter(p => p.isBenchmark || p.isIndex);
+
+    // 与原 calcExcess 闭包同算法，但允许显式指定 baseItem，方便对多基准各算一次
+    const calcExcessFor = (chartItem: ChartProductData | undefined, baseItem: ChartProductData, key: string): number | null => {
+        if (!chartItem || baseItem.id === chartItem.id) return null;
+        const alT0 = chartProductList.length > 1 ? computeAlignT0(chartProductList) : undefined;
+        const iVis = alT0 ? chartItem.netValues.filter(nv => nv.date >= alT0) : chartItem.netValues;
+        const bVis = alT0 ? baseItem.netValues.filter(nv => nv.date >= alT0) : baseItem.netValues;
+        const iStart = iVis.find(nv => nv.value > 0)?.value || 1;
+        const bStart = bVis.find(nv => nv.value > 0)?.value || 1;
+        const bNorm = new Map(bVis.filter(nv => nv.value > 0).map(nv => [nv.date, nv.value / bStart]));
+        const excessPts = iVis
+            .filter(nv => nv.value > 0 && bNorm.has(nv.date))
+            .map(nv => ({ date: nv.date, value: (nv.value / iStart) - bNorm.get(nv.date)! }));
+        if (excessPts.length < 2) return null;
+        if (key === 'mdd') {
+            let peak = 0, mdd = 0;
+            for (const ep of excessPts) { if (ep.value > peak) peak = ep.value; const dd = (peak - ep.value) / (peak || 1); if (dd > mdd) mdd = dd; }
+            return -mdd;
+        }
+        if (key === 'totalReturn') return excessPts[excessPts.length - 1].value - excessPts[0].value;
+        const latestPt = excessPts[excessPts.length - 1];
+        const target = new Date(new Date(latestPt.date).getTime() - PERIOD_DAYS[key] * 86400000);
+        const prev = [...excessPts].reverse().find(p => new Date(p.date).getTime() <= target.getTime());
+        if (!prev || prev.date === latestPt.date) return null;
+        return (latestPt.value - prev.value) / Math.abs(prev.value || 1);
+    };
+
+    // 表格列描述符：JSX 渲染和 CSV 导出共用，避免双份维护
+    interface ColumnSpec {
+        header: string;
+        cellStyle?: (item: ProductIndicator, ci: ChartProductData | undefined) => CSSProperties;
+        cellText: (item: ProductIndicator, ci: ChartProductData | undefined) => string;
+        cellSub: (item: ProductIndicator, ci: ChartProductData | undefined) => string | null;
+        isName?: boolean;
+    }
+
+    const buildColumns = (): ColumnSpec[] => {
+        const cols: ColumnSpec[] = [];
+        const ptsOf = (ci?: ChartProductData) => normalizePoints(ci?.netValues ?? []);
+        const overallSub = (ci?: ChartProductData) => {
+            const p = ptsOf(ci);
+            return p.length >= 2 ? `${p[0].dateStr} ~ ${p[p.length - 1].dateStr}` : null;
+        };
+        const periodSub = (ci: ChartProductData | undefined, days: number) => {
+            const r = periodDateRange(ptsOf(ci), days);
+            return r ? `${r.start} ~ ${r.end}` : null;
+        };
+        const ytdSub = (ci?: ChartProductData) => {
+            const r = ytdDateRange(ptsOf(ci));
+            return r ? `${r.start} ~ ${r.end}` : null;
+        };
+        const baseLabel = (base: ChartProductData) => excessBases.length > 1 ? ` (vs ${displayName(base)})` : '';
+
+        cols.push({
+            header: '名称',
+            cellText: item => displayName(item),
+            cellSub: () => null,
+            isName: true,
+        });
+        cols.push({
+            header: '单位净值',
+            cellText: (_, ci) => {
+                const last = ci?.netValues[ci.netValues.length - 1];
+                return last ? last.value.toFixed(4) : '—';
+            },
+            cellSub: () => null,
+        });
+        cols.push({
+            header: '累计净值',
+            cellText: (_, ci) => {
+                const last = ci?.netValues[ci.netValues.length - 1];
+                return last ? last.value.toFixed(4) : '—';
+            },
+            cellSub: () => null,
+        });
+
+        type PeriodKey = 'r1w' | 'r1m' | 'r3m' | 'r1y';
+        const periodCol = (key: PeriodKey, label: string): ColumnSpec => ({
+            header: label,
+            cellStyle: item => returnTextStyle(item.bundle[key]),
+            cellText: item => fmtPct(item.bundle[key]),
+            cellSub: (_, ci) => periodSub(ci, PERIOD_DAYS[key]),
+        });
+        const ytdCol: ColumnSpec = {
+            header: 'YTD',
+            cellStyle: item => returnTextStyle(item.bundle.rYtd),
+            cellText: item => fmtPct(item.bundle.rYtd),
+            cellSub: (_, ci) => ytdSub(ci),
+        };
+        const excessCol = (key: string, label: string, base: ChartProductData, asNum = false): ColumnSpec => ({
+            header: `${label}${baseLabel(base)}`,
+            cellStyle: (_, ci) => returnTextStyle(calcExcessFor(ci, base, key)),
+            cellText: (_, ci) => {
+                if (!ci || ci.id === base.id) return '—';
+                const v = calcExcessFor(ci, base, key);
+                return v === null ? '—' : (asNum ? fmtNum(v) : fmtPct(v));
+            },
+            cellSub: (_, ci) => {
+                if (!ci || ci.id === base.id) return null;
+                if (key === 'rYtd') return ytdSub(ci);
+                if (key in PERIOD_DAYS) return periodSub(ci, PERIOD_DAYS[key]);
+                return overallSub(ci);
+            },
+        });
+
+        cols.push(periodCol('r1w', '近1周'));
+        excessBases.forEach(b => cols.push(excessCol('r1w', '近1周超额', b)));
+        cols.push(periodCol('r1m', '近1月'));
+        excessBases.forEach(b => cols.push(excessCol('r1m', '近1月超额', b)));
+        cols.push(periodCol('r3m', '近三月'));
+        cols.push(periodCol('r1y', '近1年'));
+        excessBases.forEach(b => cols.push(excessCol('r1y', '近1年超额', b)));
+        cols.push(ytdCol);
+        excessBases.forEach(b => cols.push(excessCol('rYtd', 'YTD超额', b)));
+        cols.push({
+            header: '累计收益',
+            cellStyle: item => returnTextStyle(item.bundle.totalReturn),
+            cellText: item => fmtPct(item.bundle.totalReturn),
+            cellSub: (_, ci) => overallSub(ci),
+        });
+        cols.push({
+            header: '年化收益',
+            cellStyle: item => returnTextStyle(item.bundle.annRet),
+            cellText: item => fmtPct(item.bundle.annRet),
+            cellSub: (_, ci) => overallSub(ci),
+        });
+        cols.push({
+            header: '最大回撤',
+            cellText: item => fmtPct(item.bundle.mdd),
+            cellSub: (_, ci) => overallSub(ci),
+        });
+        excessBases.forEach(b => cols.push(excessCol('mdd', '最大回撤超额', b)));
+        cols.push({
+            header: '年化波动',
+            cellText: item => fmtPct(item.bundle.annVol),
+            cellSub: (_, ci) => overallSub(ci),
+        });
+        cols.push({
+            header: '夏普',
+            cellText: item => fmtNum(item.bundle.sharpe),
+            cellSub: (_, ci) => overallSub(ci),
+        });
+        excessBases.forEach(b => cols.push(excessCol('sharpe', '夏普超额', b, true)));
+        cols.push({
+            header: '备注',
+            cellText: () => '',
+            cellSub: () => null,
+        });
+        return cols;
+    };
+
+    const tableColumns = buildColumns();
+
+    const exportIndicatorsCsv = () => {
+        const headers = tableColumns.map(c => c.header);
+        const escape = (s: string) => `"${String(s).replace(/"/g, '""')}"`;
+        const lines: string[] = [headers.map(escape).join(',')];
+        productIndicators.forEach((item, i) => {
+            const ci = chartProductList[i];
+            const row = tableColumns.map(c => {
+                const text = c.cellText(item, ci);
+                const sub = c.cellSub(item, ci);
+                return sub ? `${text} [${sub}]` : text;
+            });
+            lines.push(row.map(escape).join(','));
+        });
+        const csv = '\ufeff' + lines.join('\n');
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `产品指标汇总_${new Date().toISOString().split('T')[0]}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    };
+
     // 渲染 UI
     return (
         <div style={STYLES.container}>
@@ -1184,163 +1370,53 @@ export default function NetValuesManagementPage() {
                 <div style={STYLES.chartContainer}><div ref={corrChartRef} style={STYLES.chartDom} />{(chartLoading || chartProductList.length < 2) && <div style={STYLES.placeholder}>{chartLoading ? '加载中' : '至少2个产品显示矩阵'}</div>}</div>
             </div>
 
-            {/* 指标表格 */}
+            {/* 指标表格：行序与上面的图表线一致（产品在前、基准在尾）；多基准时每个基准各出一组超额列 */}
             {productIndicators.length > 0 && (
                 <div style={{ ...STYLES.tableContainer, overflowX: 'auto' }}>
-                    <div style={STYLES.tableTitle}>
-                        产品指标汇总
-                        <span style={{ fontSize: 12, color: '#9ca3af', fontWeight: 400, marginLeft: 8 }}>
-                            （无风险利率 {(DEFAULT_RISK_FREE * 100).toFixed(1)}%，年化按 252 交易日）
-                        </span>
+                    <div style={{ ...STYLES.tableTitle, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div>
+                            产品指标汇总
+                            <span style={{ fontSize: 12, color: '#9ca3af', fontWeight: 400, marginLeft: 8 }}>
+                                （无风险利率 {(DEFAULT_RISK_FREE * 100).toFixed(1)}%，年化按 252 交易日）
+                            </span>
+                        </div>
+                        <button
+                            onClick={exportIndicatorsCsv}
+                            style={{ padding: '6px 14px', borderWidth: 1, borderStyle: 'solid', borderColor: '#3b82f6', borderRadius: 6, background: '#fff', color: '#3b82f6', cursor: 'pointer', fontSize: 13, fontWeight: 500 }}
+                        >
+                            导出 CSV
+                        </button>
                     </div>
                     <table style={STYLES.table}>
                         <thead>
                         <tr>
-                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>名称</th>
-                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>单位净值</th>
-                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>累计净值</th>
-                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>近1周</th>
-                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>近1周超额</th>
-                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>近1月</th>
-                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>近1月超额</th>
-                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>近三月</th>
-                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>近1年</th>
-                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>近1年超额</th>
-                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>YTD</th>
-                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>YTD超额</th>
-                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>累计收益</th>
-                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>年化收益</th>
-                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>最大回撤</th>
-                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>最大回撤超额</th>
-                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>年化波动</th>
-                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>夏普</th>
-                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>夏普超额</th>
-                            <th style={{ ...STYLES.tableCell, ...STYLES.tableHeader }}>备注</th>
+                            {tableColumns.map(c => (
+                                <th key={c.header} style={{ ...STYLES.tableCell, ...STYLES.tableHeader, whiteSpace: 'nowrap' }}>{c.header}</th>
+                            ))}
                         </tr>
                         </thead>
                         <tbody>
                         {productIndicators.map((item, i) => {
-                            const b = item.bundle;
-                            const pts = normalizePoints(chartProductList[i]?.netValues ?? []);
-                            const s = (days: number) => {
-                                const r = periodDateRange(pts, days);
-                                return r ? `${r.start} ~ ${r.end}` : null;
-                            };
-                            const ytd = ytdDateRange(pts);
-                            const overall = pts.length >= 2 ? `${pts[0].dateStr} ~ ${pts[pts.length - 1].dateStr}` : null;
-                            const cellSub = (key: string) => {
-                                if (key in PERIOD_DAYS) return s(PERIOD_DAYS[key]);
-                                if (key === 'rYtd') return ytd ? `${ytd.start} ~ ${ytd.end}` : null;
-                                return overall;
-                            };
-
-                            // 超额基准：第一个非指数基准产品
-                            const chartItem = chartProductList[i];
-                            const baseItem = chartProductList.find(p => p.isBenchmark && !p.isIndex)
-                                ?? chartProductList.find(p => !p.isIndex && p.id !== chartItem?.id)
-                                ?? chartProductList.find(p => p.isBenchmark);
-
-                            // 算超额指标（与基准对齐）
-                            function calcExcess(key: string): number | null {
-                                if (!chartItem || !baseItem || baseItem.id === chartItem.id || chartItem.isBenchmark) return null;
-                                const alT0 = chartProductList.length > 1 ? computeAlignT0(chartProductList) : undefined;
-                                const iVis = alT0 ? chartItem.netValues.filter(nv => nv.date >= alT0) : chartItem.netValues;
-                                const bVis = alT0 ? baseItem.netValues.filter(nv => nv.date >= alT0) : baseItem.netValues;
-                                const iStart = iVis.find(nv => nv.value > 0)?.value || 1;
-                                const bStart = bVis.find(nv => nv.value > 0)?.value || 1;
-                                const bNorm = new Map(bVis.filter(nv => nv.value > 0).map(nv => [nv.date, nv.value / bStart]));
-                                let excessPts = iVis
-                                    .filter(nv => nv.value > 0 && bNorm.has(nv.date))
-                                    .map(nv => ({ date: nv.date, value: (nv.value / iStart) - bNorm.get(nv.date)! }));
-                                if (excessPts.length < 2) return null;
-
-                                if (key === 'mdd') {
-                                    let peak = 0, mdd = 0;
-                                    for (const ep of excessPts) { if (ep.value > peak) peak = ep.value; const dd = (peak - ep.value) / (peak || 1); if (dd > mdd) mdd = dd; }
-                                    return -mdd;
-                                }
-                                if (key === 'totalReturn') return excessPts[excessPts.length - 1].value - excessPts[0].value;
-                                // period returns
-                                const latestPt = excessPts[excessPts.length - 1];
-                                const target = new Date(new Date(latestPt.date).getTime() - PERIOD_DAYS[key] * 86400000);
-                                const prev = [...excessPts].reverse().find(p => new Date(p.date).getTime() <= target.getTime());
-                                if (!prev || prev.date === latestPt.date) return null;
-                                return (latestPt.value - prev.value) / Math.abs(prev.value || 1);
-                            }
-
-                            // 最新净值
-                            const lastRaw = chartItem?.netValues[chartItem.netValues.length - 1] ?? null;
-
+                            const ci = chartProductList[i];
+                            const rowStyle = (ci?.isBenchmark || ci?.isIndex) ? STYLES.benchmarkRow : undefined;
                             return (
-                                <tr key={i} style={item.isBenchmark ? STYLES.benchmarkRow : undefined}>
-                                    <td style={STYLES.tableCell}>
-                                        {item.isIndex || item.id <= 0
-                                            ? displayName(item)
-                                            : <a href={`/products/${item.id}`} target="_blank" rel="noopener noreferrer"
-                                                  style={{ color: 'inherit', textDecoration: 'none' }}>{displayName(item)}</a>
-                                        }
-                                    </td>
-                                    <td style={STYLES.tableCell}>
-                                        {lastRaw ? lastRaw.value.toFixed(4) : '—'}
-                                    </td>
-                                    <td style={STYLES.tableCell}>
-                                        {lastRaw ? lastRaw.value.toFixed(4) : '—'}
-                                    </td>
-                                    <td style={{ ...STYLES.tableCell, ...returnTextStyle(b.r1w) }}>
-                                        {fmtPct(b.r1w)}<SubLabel text={cellSub('r1w')} />
-                                    </td>
-                                    <td style={{ ...STYLES.tableCell, ...returnTextStyle(calcExcess('r1w')) }}>
-                                        {!chartItem?.isBenchmark && !chartItem?.isIndex ? fmtPct(calcExcess('r1w')) : '—'}
-                                        <SubLabel text={!chartItem?.isBenchmark && !chartItem?.isIndex ? cellSub('r1w') : null} />
-                                    </td>
-                                    <td style={{ ...STYLES.tableCell, ...returnTextStyle(b.r1m) }}>
-                                        {fmtPct(b.r1m)}<SubLabel text={cellSub('r1m')} />
-                                    </td>
-                                    <td style={{ ...STYLES.tableCell, ...returnTextStyle(calcExcess('r1m')) }}>
-                                        {!chartItem?.isBenchmark && !chartItem?.isIndex ? fmtPct(calcExcess('r1m')) : '—'}
-                                        <SubLabel text={!chartItem?.isBenchmark && !chartItem?.isIndex ? cellSub('r1m') : null} />
-                                    </td>
-                                    <td style={{ ...STYLES.tableCell, ...returnTextStyle(b.r3m) }}>
-                                        {fmtPct(b.r3m)}<SubLabel text={cellSub('r3m')} />
-                                    </td>
-                                    <td style={{ ...STYLES.tableCell, ...returnTextStyle(b.r1y) }}>
-                                        {fmtPct(b.r1y)}<SubLabel text={cellSub('r1y')} />
-                                    </td>
-                                    <td style={{ ...STYLES.tableCell, ...returnTextStyle(calcExcess('r1y')) }}>
-                                        {!chartItem?.isBenchmark && !chartItem?.isIndex ? fmtPct(calcExcess('r1y')) : '—'}
-                                        <SubLabel text={!chartItem?.isBenchmark && !chartItem?.isIndex ? cellSub('r1y') : null} />
-                                    </td>
-                                    <td style={{ ...STYLES.tableCell, ...returnTextStyle(b.rYtd) }}>
-                                        {fmtPct(b.rYtd)}<SubLabel text={cellSub('rYtd')} />
-                                    </td>
-                                    <td style={{ ...STYLES.tableCell, ...returnTextStyle(calcExcess('rYtd')) }}>
-                                        {!chartItem?.isBenchmark && !chartItem?.isIndex ? fmtPct(calcExcess('rYtd')) : '—'}
-                                        <SubLabel text={!chartItem?.isBenchmark && !chartItem?.isIndex ? cellSub('rYtd') : null} />
-                                    </td>
-                                    <td style={{ ...STYLES.tableCell, ...returnTextStyle(b.totalReturn) }}>
-                                        {fmtPct(b.totalReturn)}<SubLabel text={cellSub('totalReturn')} />
-                                    </td>
-                                    <td style={{ ...STYLES.tableCell, ...returnTextStyle(b.annRet) }}>
-                                        {fmtPct(b.annRet)}<SubLabel text={cellSub('annRet')} />
-                                    </td>
-                                    <td style={STYLES.tableCell}>
-                                        {fmtPct(b.mdd)}<SubLabel text={cellSub('mdd')} />
-                                    </td>
-                                    <td style={{ ...STYLES.tableCell, ...returnTextStyle(calcExcess('mdd')) }}>
-                                        {!chartItem?.isBenchmark && !chartItem?.isIndex ? fmtPct(calcExcess('mdd')) : '—'}
-                                        <SubLabel text={!chartItem?.isBenchmark && !chartItem?.isIndex ? overall : null} />
-                                    </td>
-                                    <td style={STYLES.tableCell}>
-                                        {fmtPct(b.annVol)}<SubLabel text={cellSub('annVol')} />
-                                    </td>
-                                    <td style={STYLES.tableCell}>
-                                        {fmtNum(b.sharpe)}<SubLabel text={cellSub('sharpe')} />
-                                    </td>
-                                    <td style={{ ...STYLES.tableCell, ...returnTextStyle(calcExcess('sharpe')) }}>
-                                        {!chartItem?.isBenchmark && !chartItem?.isIndex ? fmtNum(calcExcess('sharpe')) : '—'}
-                                        <SubLabel text={!chartItem?.isBenchmark && !chartItem?.isIndex ? overall : null} />
-                                    </td>
-                                    <td style={STYLES.tableCell}>{/* 备注占位 */}</td>
+                                <tr key={i} style={rowStyle}>
+                                    {tableColumns.map(c => {
+                                        const cellStyleExtra = c.cellStyle ? c.cellStyle(item, ci) : {};
+                                        const text = c.cellText(item, ci);
+                                        const sub = c.cellSub(item, ci);
+                                        return (
+                                            <td key={c.header} style={{ ...STYLES.tableCell, ...cellStyleExtra }}>
+                                                {c.isName
+                                                    ? (item.isIndex || item.id <= 0
+                                                        ? text
+                                                        : <a href={`/products/${item.id}`} target="_blank" rel="noopener noreferrer"
+                                                              style={{ color: 'inherit', textDecoration: 'none' }}>{text}</a>)
+                                                    : text}
+                                                <SubLabel text={sub} />
+                                            </td>
+                                        );
+                                    })}
                                 </tr>
                             );
                         })}
