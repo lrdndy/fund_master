@@ -920,7 +920,7 @@ export default function NetValuesManagementPage() {
         isName?: boolean;
     }
 
-    const buildColumns = (): ColumnSpec[] => {
+    const buildColumns = (base: ChartProductData | null): ColumnSpec[] => {
         const cols: ColumnSpec[] = [];
         const ptsOf = (ci?: ChartProductData) => normalizePoints(ci?.netValues ?? []);
         const overallSub = (ci?: ChartProductData) => {
@@ -935,8 +935,6 @@ export default function NetValuesManagementPage() {
             const r = ytdDateRange(ptsOf(ci));
             return r ? `${r.start} ~ ${r.end}` : null;
         };
-        const baseLabel = (base: ChartProductData) => excessBases.length > 1 ? ` (vs ${displayName(base)})` : '';
-
         cols.push({
             header: '名称',
             cellText: item => displayName(item),
@@ -973,16 +971,16 @@ export default function NetValuesManagementPage() {
             cellText: item => fmtPct(item.bundle.rYtd),
             cellSub: (_, ci) => ytdSub(ci),
         };
-        const excessCol = (key: string, label: string, base: ChartProductData, asNum = false): ColumnSpec => ({
-            header: `${label}${baseLabel(base)}`,
-            cellStyle: (_, ci) => returnTextStyle(calcExcessFor(ci, base, key)),
+        const excessCol = (key: string, label: string, b: ChartProductData, asNum = false): ColumnSpec => ({
+            header: label,
+            cellStyle: (_, ci) => returnTextStyle(calcExcessFor(ci, b, key)),
             cellText: (_, ci) => {
-                if (!ci || ci.id === base.id) return '—';
-                const v = calcExcessFor(ci, base, key);
+                if (!ci || ci.id === b.id) return '—';
+                const v = calcExcessFor(ci, b, key);
                 return v === null ? '—' : (asNum ? fmtNum(v) : fmtPct(v));
             },
             cellSub: (_, ci) => {
-                if (!ci || ci.id === base.id) return null;
+                if (!ci || ci.id === b.id) return null;
                 if (key === 'rYtd') return ytdSub(ci);
                 if (key in PERIOD_DAYS) return periodSub(ci, PERIOD_DAYS[key]);
                 return overallSub(ci);
@@ -990,14 +988,14 @@ export default function NetValuesManagementPage() {
         });
 
         cols.push(periodCol('r1w', '近1周'));
-        excessBases.forEach(b => cols.push(excessCol('r1w', '近1周超额', b)));
+        if (base) cols.push(excessCol('r1w', '近1周超额', base));
         cols.push(periodCol('r1m', '近1月'));
-        excessBases.forEach(b => cols.push(excessCol('r1m', '近1月超额', b)));
+        if (base) cols.push(excessCol('r1m', '近1月超额', base));
         cols.push(periodCol('r3m', '近三月'));
         cols.push(periodCol('r1y', '近1年'));
-        excessBases.forEach(b => cols.push(excessCol('r1y', '近1年超额', b)));
+        if (base) cols.push(excessCol('r1y', '近1年超额', base));
         cols.push(ytdCol);
-        excessBases.forEach(b => cols.push(excessCol('rYtd', 'YTD超额', b)));
+        if (base) cols.push(excessCol('rYtd', 'YTD超额', base));
         cols.push({
             header: '累计收益',
             cellStyle: item => returnTextStyle(item.bundle.totalReturn),
@@ -1015,7 +1013,7 @@ export default function NetValuesManagementPage() {
             cellText: item => fmtPct(item.bundle.mdd),
             cellSub: (_, ci) => overallSub(ci),
         });
-        excessBases.forEach(b => cols.push(excessCol('mdd', '最大回撤超额', b)));
+        if (base) cols.push(excessCol('mdd', '最大回撤超额', base));
         cols.push({
             header: '年化波动',
             cellText: item => fmtPct(item.bundle.annVol),
@@ -1026,7 +1024,7 @@ export default function NetValuesManagementPage() {
             cellText: item => fmtNum(item.bundle.sharpe),
             cellSub: (_, ci) => overallSub(ci),
         });
-        excessBases.forEach(b => cols.push(excessCol('sharpe', '夏普超额', b, true)));
+        if (base) cols.push(excessCol('sharpe', '夏普超额', base, true));
         cols.push({
             header: '备注',
             cellText: () => '',
@@ -1035,15 +1033,31 @@ export default function NetValuesManagementPage() {
         return cols;
     };
 
-    const tableColumns = buildColumns();
+    // 多基准切多表：每个基准独占一张表，最后一行 = 该基准本身；列数与单基准时一致
+    // 避免一张大表横向拉得过宽（一张大表里 N × 6 列超额会很难看）
+    const indicatorByItemId = new Map(productIndicators.map(ind => [ind.id, ind]));
+    const productItems = chartProductList.filter(p => !p.isBenchmark && !p.isIndex);
+    const indicatorTables: Array<{ base: ChartProductData | null; rows: ChartProductData[]; columns: ColumnSpec[] }> =
+        excessBases.length > 0
+            ? excessBases.map(base => ({
+                base,
+                rows: [...productItems, base],
+                columns: buildColumns(base),
+            }))
+            : [{
+                base: null,
+                rows: productItems,
+                columns: buildColumns(null),
+            }];
 
-    const exportIndicatorsCsv = () => {
-        const headers = tableColumns.map(c => c.header);
+    const exportTableCsv = (base: ChartProductData | null, rows: ChartProductData[], columns: ColumnSpec[]) => {
+        const headers = columns.map(c => c.header);
         const escape = (s: string) => `"${String(s).replace(/"/g, '""')}"`;
         const lines: string[] = [headers.map(escape).join(',')];
-        productIndicators.forEach((item, i) => {
-            const ci = chartProductList[i];
-            const row = tableColumns.map(c => {
+        rows.forEach(ci => {
+            const item = indicatorByItemId.get(ci.id);
+            if (!item) return;
+            const row = columns.map(c => {
                 const text = c.cellText(item, ci);
                 const sub = c.cellSub(item, ci);
                 return sub ? `${text} [${sub}]` : text;
@@ -1055,7 +1069,8 @@ export default function NetValuesManagementPage() {
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `产品指标汇总_${new Date().toISOString().split('T')[0]}.csv`;
+        const suffix = base ? `_vs_${displayName(base)}` : '';
+        a.download = `产品指标汇总${suffix}_${new Date().toISOString().split('T')[0]}.csv`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
@@ -1370,18 +1385,23 @@ export default function NetValuesManagementPage() {
                 <div style={STYLES.chartContainer}><div ref={corrChartRef} style={STYLES.chartDom} />{(chartLoading || chartProductList.length < 2) && <div style={STYLES.placeholder}>{chartLoading ? '加载中' : '至少2个产品显示矩阵'}</div>}</div>
             </div>
 
-            {/* 指标表格：行序与上面的图表线一致（产品在前、基准在尾）；多基准时每个基准各出一组超额列 */}
-            {productIndicators.length > 0 && (
-                <div style={{ ...STYLES.tableContainer, overflowX: 'auto' }}>
+            {/* 指标表格：每个基准独占一张表，最后一行 = 该基准；多张表列数一致，避免一张大表横向爆炸 */}
+            {productIndicators.length > 0 && indicatorTables.map((t, ti) => (
+                <div key={t.base ? t.base.id : 'no-base'} style={{ ...STYLES.tableContainer, overflowX: 'auto', marginTop: ti === 0 ? 32 : 16 }}>
                     <div style={{ ...STYLES.tableTitle, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <div>
                             产品指标汇总
+                            {t.base && (
+                                <span style={{ fontSize: 13, color: '#1f2937', fontWeight: 500, marginLeft: 8 }}>
+                                    （基准：{displayName(t.base)}）
+                                </span>
+                            )}
                             <span style={{ fontSize: 12, color: '#9ca3af', fontWeight: 400, marginLeft: 8 }}>
                                 （无风险利率 {(DEFAULT_RISK_FREE * 100).toFixed(1)}%，年化按 252 交易日）
                             </span>
                         </div>
                         <button
-                            onClick={exportIndicatorsCsv}
+                            onClick={() => exportTableCsv(t.base, t.rows, t.columns)}
                             style={{ padding: '6px 14px', borderWidth: 1, borderStyle: 'solid', borderColor: '#3b82f6', borderRadius: 6, background: '#fff', color: '#3b82f6', cursor: 'pointer', fontSize: 13, fontWeight: 500 }}
                         >
                             导出 CSV
@@ -1390,18 +1410,19 @@ export default function NetValuesManagementPage() {
                     <table style={STYLES.table}>
                         <thead>
                         <tr>
-                            {tableColumns.map(c => (
+                            {t.columns.map(c => (
                                 <th key={c.header} style={{ ...STYLES.tableCell, ...STYLES.tableHeader, whiteSpace: 'nowrap' }}>{c.header}</th>
                             ))}
                         </tr>
                         </thead>
                         <tbody>
-                        {productIndicators.map((item, i) => {
-                            const ci = chartProductList[i];
-                            const rowStyle = (ci?.isBenchmark || ci?.isIndex) ? STYLES.benchmarkRow : undefined;
+                        {t.rows.map(ci => {
+                            const item = indicatorByItemId.get(ci.id);
+                            if (!item) return null;
+                            const rowStyle = (ci.isBenchmark || ci.isIndex) ? STYLES.benchmarkRow : undefined;
                             return (
-                                <tr key={i} style={rowStyle}>
-                                    {tableColumns.map(c => {
+                                <tr key={ci.id} style={rowStyle}>
+                                    {t.columns.map(c => {
                                         const cellStyleExtra = c.cellStyle ? c.cellStyle(item, ci) : {};
                                         const text = c.cellText(item, ci);
                                         const sub = c.cellSub(item, ci);
@@ -1423,7 +1444,7 @@ export default function NetValuesManagementPage() {
                         </tbody>
                     </table>
                 </div>
-            )}
+            ))}
         </div>
     );
 }
