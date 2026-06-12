@@ -85,6 +85,7 @@ export default function ProductDetailClient({ initialProductId }: ProductDetailC
     const [benchmarkLoading, setBenchmarkLoading] = useState(false);
     // 超额收益叠加：在净值曲线图叠加'产品相对某基准的超额'（次坐标轴虚线）
     const [showExcess, setShowExcess] = useState(false);
+    const [excessOnly, setExcessOnly] = useState(false); // 仅显示超额曲线：隐藏累计净值主线，超额走主轴实线加粗
     // 注：之前用 excessBenchmarkId 单选一个基准当 base，现在改成所有选中基准自动展开（产品 × 每个基准画一条线）
 
     // 辅助：从 CustomTag[] 提取 ID 数组
@@ -880,13 +881,19 @@ export default function ProductDetailClient({ initialProductId }: ProductDetailC
                 </div>
 
                 {hasBenchmark && (
-                    <div className="flex items-center flex-wrap gap-2 mb-2 text-sm">
+                    <div className="flex items-center flex-wrap gap-3 mb-2 text-sm">
                         <label className="flex items-center gap-1.5 text-gray-700 cursor-pointer">
                             <input type="checkbox" checked={showExcess} onChange={e => setShowExcess(e.target.checked)} />
                             叠加超额收益（产品相对每个基准画一条，次坐标轴虚线）
                         </label>
+                        {showExcess && (
+                            <label className="flex items-center gap-1.5 text-gray-700 cursor-pointer">
+                                <input type="checkbox" checked={excessOnly} onChange={e => setExcessOnly(e.target.checked)} />
+                                仅显示超额曲线（隐藏累计净值主线）
+                            </label>
+                        )}
                         {showExcess && selectedBenchmarkIds.length > 1 && (
-                            <span className="text-xs text-gray-500">已展开 {selectedBenchmarkIds.length} 条产品 vs 基准 超额线</span>
+                            <span className="text-xs text-gray-500 ml-auto">已展开 {selectedBenchmarkIds.length} 条产品 vs 基准 超额线</span>
                         )}
                     </div>
                 )}
@@ -898,6 +905,7 @@ export default function ProductDetailClient({ initialProductId }: ProductDetailC
                     loading={false}
                     normalize={hasBenchmark}
                     excessBaseNames={showExcess && hasBenchmark ? excessBaseNames : undefined}
+                    excessOnly={showExcess && hasBenchmark && excessOnly}
                 />
             </div>
 
