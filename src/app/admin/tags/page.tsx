@@ -68,6 +68,9 @@ export default function AdminTagManager() {
     const [productModalOpen, setProductModalOpen] = useState(false);
     const [productModalTag, setProductModalTag] = useState<CustomTag | null>(null);
     const [tagProducts, setTagProducts] = useState<CustomTagProduct[]>([]);
+    // 待添加缓冲：点击"+ 添加"先入此队列，不立即调 API；点确认后批量提交
+    const [pendingAdds, setPendingAdds] = useState<number[]>([]);
+    const [confirmingAdd, setConfirmingAdd] = useState(false);
     const [allProducts, setAllProducts] = useState<{ id: number; product_name: string }[]>([]);
     const [productModalLoading, setProductModalLoading] = useState(false);
     const [productSearch, setProductSearch] = useState('');
@@ -366,6 +369,7 @@ export default function AdminTagManager() {
         setProductSearch('');
         setProductModalOpen(true);
         setProductModalLoading(true);
+        setPendingAdds([]);
         try {
             const [prodRes, tagProdRes] = await Promise.all([
                 productApi.getProducts({ page_size: '2000', lite: '1' }),
@@ -384,21 +388,50 @@ export default function AdminTagManager() {
         return tagProducts.some(tp => tp.product === productId);
     }, [tagProducts]);
 
-    const toggleTagProduct = useCallback(async (productId: number) => {
+    const isPendingAdd = useCallback((productId: number) => pendingAdds.includes(productId), [pendingAdds]);
+
+    // 点击"+ 添加"：只放入缓冲，不调 API
+    const queueAddProduct = useCallback((productId: number) => {
         if (!productModalTag) return;
-        const existing = tagProducts.find(tp => tp.product === productId);
+        if (isTagProduct(productId) || isPendingAdd(productId)) return;
+        setPendingAdds(prev => [...prev, productId]);
+    }, [productModalTag, isTagProduct, isPendingAdd]);
+
+    const unqueueAddProduct = useCallback((productId: number) => {
+        setPendingAdds(prev => prev.filter(id => id !== productId));
+    }, []);
+
+    // 删除"已选产品"还是直接走 API，没要求做缓冲
+    const removeTagProduct = useCallback(async (relationId: number) => {
         try {
-            if (existing) {
-                await tagApi.deleteCustomTagProduct(existing.id);
-                setTagProducts(prev => prev.filter(tp => tp.id !== existing.id));
-            } else {
-                const newRel = await tagApi.createCustomTagProduct(productModalTag.id, productId);
-                setTagProducts(prev => [...prev, newRel]);
-            }
+            await tagApi.deleteCustomTagProduct(relationId);
+            setTagProducts(prev => prev.filter(tp => tp.id !== relationId));
         } catch {
             setOperateError('操作失败');
         }
-    }, [productModalTag, tagProducts]);
+    }, []);
+
+    // 确认添加：一次性把缓冲里的产品全部提交
+    const confirmAdds = useCallback(async () => {
+        if (!productModalTag || pendingAdds.length === 0 || confirmingAdd) return;
+        setConfirmingAdd(true);
+        try {
+            const results = await Promise.allSettled(
+                pendingAdds.map(pid => tagApi.createCustomTagProduct(productModalTag.id, pid)),
+            );
+            const added: CustomTagProduct[] = [];
+            const failed: number[] = [];
+            results.forEach((r, idx) => {
+                if (r.status === 'fulfilled') added.push(r.value);
+                else failed.push(pendingAdds[idx]);
+            });
+            if (added.length > 0) setTagProducts(prev => [...prev, ...added]);
+            setPendingAdds(failed);
+            if (failed.length > 0) setOperateError(`${failed.length} 个产品添加失败，请重试`);
+        } finally {
+            setConfirmingAdd(false);
+        }
+    }, [productModalTag, pendingAdds, confirmingAdd]);
 
     if (authLoading) return <div className="container mx-auto py-10 text-center">权限验证中...</div>;
     if (hasWritePermission === false) return <div className="container mx-auto py-10 text-center">无权限访问</div>;
@@ -746,6 +779,44 @@ export default function AdminTagManager() {
                                     已选产品
                                     <span className="text-xs font-normal text-amber-600 ml-auto">{tagProducts.length} 个</span>
                                 </div>
+                                {/* 待添加缓冲区：先入此处，点"确认添加"才落库 */}
+                                {pendingAdds.length > 0 && (
+                                    <div className="border-b border-amber-200 bg-amber-50/40 px-2 py-2">
+                                        <div className="flex items-center justify-between px-1 mb-1">
+                                            <span className="text-xs font-medium text-orange-700">
+                                                待添加 <span className="font-semibold">{pendingAdds.length}</span> 个
+                                            </span>
+                                            <div className="flex gap-1">
+                                                <button
+                                                    onClick={() => setPendingAdds([])}
+                                                    disabled={confirmingAdd}
+                                                    className="text-xs text-slate-500 hover:text-slate-700 px-2 py-1 rounded disabled:opacity-50"
+                                                >清空</button>
+                                                <button
+                                                    onClick={confirmAdds}
+                                                    disabled={confirmingAdd}
+                                                    className="text-xs font-medium text-white bg-orange-500 hover:bg-orange-600 px-3 py-1 rounded disabled:opacity-50"
+                                                >{confirmingAdd ? '提交中…' : '确认添加'}</button>
+                                            </div>
+                                        </div>
+                                        <div className="space-y-1 max-h-32 overflow-y-auto">
+                                            {pendingAdds.map(pid => {
+                                                const p = allProducts.find(x => x.id === pid);
+                                                return (
+                                                    <div key={pid} className="flex items-center justify-between px-3 py-1.5 rounded-md border border-orange-300 border-dashed bg-orange-50 text-xs text-orange-900">
+                                                        <span>{p ? p.product_name : `#${pid}`}</span>
+                                                        <button
+                                                            onClick={() => unqueueAddProduct(pid)}
+                                                            disabled={confirmingAdd}
+                                                            className="text-orange-400 hover:text-orange-600 text-base leading-none ml-2 disabled:opacity-50"
+                                                            title="撤回"
+                                                        >×</button>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                )}
                                 <div className="flex-1 overflow-y-auto p-2 space-y-1">
                                     {productModalLoading ? (
                                         <div className="flex items-center justify-center h-20 text-slate-400 text-xs">加载中...</div>
@@ -756,7 +827,7 @@ export default function AdminTagManager() {
                                             <div key={tp.id} className="flex items-center justify-between px-3 py-2 rounded-lg bg-amber-50 text-sm text-amber-900">
                                                 <span>{tp.product_name}</span>
                                                 <button
-                                                    onClick={() => toggleTagProduct(tp.product)}
+                                                    onClick={() => removeTagProduct(tp.id)}
                                                     className="text-red-400 hover:text-red-600 text-lg leading-none ml-2"
                                                     title="移除"
                                                 >×</button>
@@ -788,11 +859,11 @@ export default function AdminTagManager() {
                                     ) : (
                                         allProducts
                                             .filter(p => !productSearch || p.product_name.toLowerCase().includes(productSearch.toLowerCase()))
-                                            .filter(p => !isTagProduct(p.id))
+                                            .filter(p => !isTagProduct(p.id) && !isPendingAdd(p.id))
                                             .map(p => (
                                                 <div key={p.id}
                                                     className="flex items-center justify-between px-3 py-2 rounded-lg hover:bg-blue-50 cursor-pointer text-sm text-slate-700 transition"
-                                                    onClick={() => toggleTagProduct(p.id)}
+                                                    onClick={() => queueAddProduct(p.id)}
                                                 >
                                                     <span>{p.product_name}</span>
                                                     <span className="text-blue-500 text-xs font-medium">+ 添加</span>
@@ -805,7 +876,10 @@ export default function AdminTagManager() {
 
                         <div className="flex justify-end mt-4 pt-3 border-t border-slate-100">
                             <button
-                                onClick={() => setProductModalOpen(false)}
+                                onClick={() => {
+                                    if (pendingAdds.length > 0 && !window.confirm(`还有 ${pendingAdds.length} 个待添加产品未确认，关闭后会丢失，确定关闭吗？`)) return;
+                                    setProductModalOpen(false);
+                                }}
                                 className="px-4 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 hover:bg-slate-100 transition"
                             >
                                 关闭
