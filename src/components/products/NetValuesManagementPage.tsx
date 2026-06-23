@@ -485,13 +485,14 @@ export default function NetValuesManagementPage() {
             const list: ChartProductData[] = [];
 
             // 产品净值 -> ValidNetValue[]；value = 累计净值（图表/相关性用），unitValue = 单位净值（指标表收益用）
+            // 后端字段叫 net_value（不是 unit_net_value）；模型 fund_core/models.py:195 / 序列化器 ProductNetValueSerializer
             // 单位净值若缺失就 fallback 到累计净值，保证下游计算不会 NaN
             const toValid = (rs: ProductNetValue[]): ValidNetValue[] => (rs ?? [])
                 .filter(r => r.net_value_date && r.cumulative_unit_net_value != null && !isNaN(+r.cumulative_unit_net_value))
                 .map(r => {
                     const cum = +r.cumulative_unit_net_value!;
-                    const unitRaw = (r as { unit_net_value?: number | string | null }).unit_net_value;
-                    const unit = unitRaw != null && unitRaw !== '' && !isNaN(+unitRaw) ? +unitRaw : cum;
+                    const unitRaw = r.net_value;
+                    const unit = unitRaw != null && !isNaN(+unitRaw) ? +unitRaw : cum;
                     return { date: r.net_value_date.trim(), value: cum, unitValue: unit };
                 })
                 .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
