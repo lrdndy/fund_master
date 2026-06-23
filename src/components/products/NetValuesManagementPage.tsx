@@ -15,6 +15,7 @@ import {
     MetricPoint,
     findAtOrBefore,
     findAtOrAfter,
+    returnBetween,
 } from '@/lib/metrics';
 import type {
     Product,
@@ -266,6 +267,25 @@ export default function NetValuesManagementPage() {
     const [excessOnly, setExcessOnly] = useState(false); // 只看超额：隐藏主线，仅画超额次轴
     const [excessBaseId, setExcessBaseId] = useState<number | null>(null);
     const [showExcessOnly, setShowExcessOnly] = useState(false);
+
+    // 产品指标表里 r1w/r1m/r3m/r1y/rYtd 列的可调时间窗口：默认 today-N → today，
+    // 用户改了 input 就走新区间重算（自动 snap 到最近的有效净值日，跳过非交易日）
+    const [periodWindows, setPeriodWindows] = useState<Record<string, { start: string; end: string }>>(() => {
+        const today = new Date();
+        const todayStr = today.toISOString().split('T')[0];
+        const mkStart = (days: number) => {
+            const d = new Date(today.getTime() - days * 86400000);
+            return d.toISOString().split('T')[0];
+        };
+        const ytdStart = `${today.getFullYear()}-01-01`;
+        return {
+            r1w: { start: mkStart(7), end: todayStr },
+            r1m: { start: mkStart(30), end: todayStr },
+            r3m: { start: mkStart(90), end: todayStr },
+            r1y: { start: mkStart(365), end: todayStr },
+            rYtd: { start: ytdStart, end: todayStr },
+        };
+    });
     const debouncedResize = useRef<(() => void) | null>(null);
 
     // 初始化图表
@@ -904,6 +924,21 @@ export default function NetValuesManagementPage() {
             return -mdd;
         }
         if (key === 'totalReturn') return excessPts[excessPts.length - 1].value - excessPts[0].value;
+        // 周期 / YTD：优先用用户在表头选的 periodWindows 区间；区间没填或落到样本外才退回 PERIOD_DAYS 默认回溯
+        const win = periodWindows[key];
+        if (win && win.start && win.end) {
+            const startT = new Date(win.start).getTime();
+            const endT = new Date(win.end).getTime();
+            if (!isNaN(startT) && !isNaN(endT) && startT <= endT) {
+                const prev = excessPts.find(p => new Date(p.date).getTime() >= startT);
+                const last = [...excessPts].reverse().find(p => new Date(p.date).getTime() <= endT);
+                if (prev && last && prev.date !== last.date) {
+                    return last.value - prev.value;  // 累计超额差（绝对差，避开除小数）
+                }
+                return null;
+            }
+        }
+        if (!(key in PERIOD_DAYS)) return null;
         const latestPt = excessPts[excessPts.length - 1];
         const target = new Date(new Date(latestPt.date).getTime() - PERIOD_DAYS[key] * 86400000);
         const prev = [...excessPts].reverse().find(p => new Date(p.date).getTime() <= target.getTime());
@@ -914,11 +949,35 @@ export default function NetValuesManagementPage() {
     // 表格列描述符：JSX 渲染和 CSV 导出共用，避免双份维护
     interface ColumnSpec {
         header: string;
+        // 自定义表头渲染（带 input/select 控件的列用），可选；不填就用 header 文本
+        headerNode?: React.ReactNode;
         cellStyle?: (item: ProductIndicator, ci: ChartProductData | undefined) => CSSProperties;
         cellText: (item: ProductIndicator, ci: ChartProductData | undefined) => string;
         cellSub: (item: ProductIndicator, ci: ChartProductData | undefined) => string | null;
         isName?: boolean;
     }
+
+    // 周期列表头：title + 两个紧凑日期 input；用户改 input → setPeriodWindows 触发整列重算
+    const renderPeriodHeader = (label: string, key: string) => {
+        const win = periodWindows[key] ?? { start: '', end: '' };
+        const onChange = (field: 'start' | 'end') => (e: React.ChangeEvent<HTMLInputElement>) => {
+            setPeriodWindows(prev => ({ ...prev, [key]: { ...prev[key], [field]: e.target.value } }));
+        };
+        const inputStyle: CSSProperties = {
+            padding: '1px 4px', fontSize: 10, border: '1px solid #d1d5db',
+            borderRadius: 4, color: '#4b5563', background: '#fff', width: 100,
+        };
+        return (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 2, alignItems: 'flex-start' }}>
+                <span>{label}</span>
+                <div style={{ display: 'flex', gap: 2, alignItems: 'center', fontWeight: 400 }}>
+                    <input type="date" value={win.start} onChange={onChange('start')} style={inputStyle} />
+                    <span style={{ fontSize: 10, color: '#9ca3af' }}>~</span>
+                    <input type="date" value={win.end} onChange={onChange('end')} style={inputStyle} />
+                </div>
+            </div>
+        );
+    };
 
     const buildColumns = (base: ChartProductData | null): ColumnSpec[] => {
         const cols: ColumnSpec[] = [];
@@ -959,17 +1018,34 @@ export default function NetValuesManagementPage() {
         });
 
         type PeriodKey = 'r1w' | 'r1m' | 'r3m' | 'r1y';
+        // 周期列：用户在表头改了 periodWindows 就走 returnBetween；区间没填 / 无效就退到 bundle 里的默认值
+        const computeWindowed = (ci: ChartProductData | undefined, key: string, fallback: number | null) => {
+            if (!ci) return { value: fallback, sub: null as string | null };
+            const win = periodWindows[key];
+            if (!win || !win.start || !win.end) return { value: fallback, sub: null };
+            const r = returnBetween(normalizePoints(ci.netValues), win.start, win.end);
+            if (!r) return { value: null, sub: '区间无样本' };
+            return { value: r.value, sub: `${r.matchedStart} ~ ${r.matchedEnd}` };
+        };
         const periodCol = (key: PeriodKey, label: string): ColumnSpec => ({
             header: label,
-            cellStyle: item => returnTextStyle(item.bundle[key]),
-            cellText: item => fmtPct(item.bundle[key]),
-            cellSub: (_, ci) => periodSub(ci, PERIOD_DAYS[key]),
+            headerNode: renderPeriodHeader(label, key),
+            cellStyle: (item, ci) => returnTextStyle(computeWindowed(ci, key, item.bundle[key]).value),
+            cellText: (item, ci) => fmtPct(computeWindowed(ci, key, item.bundle[key]).value),
+            cellSub: (item, ci) => {
+                const r = computeWindowed(ci, key, item.bundle[key]);
+                return r.sub ?? periodSub(ci, PERIOD_DAYS[key]);
+            },
         });
         const ytdCol: ColumnSpec = {
             header: 'YTD',
-            cellStyle: item => returnTextStyle(item.bundle.rYtd),
-            cellText: item => fmtPct(item.bundle.rYtd),
-            cellSub: (_, ci) => ytdSub(ci),
+            headerNode: renderPeriodHeader('YTD', 'rYtd'),
+            cellStyle: (item, ci) => returnTextStyle(computeWindowed(ci, 'rYtd', item.bundle.rYtd).value),
+            cellText: (item, ci) => fmtPct(computeWindowed(ci, 'rYtd', item.bundle.rYtd).value),
+            cellSub: (item, ci) => {
+                const r = computeWindowed(ci, 'rYtd', item.bundle.rYtd);
+                return r.sub ?? ytdSub(ci);
+            },
         };
         const excessCol = (key: string, label: string, b: ChartProductData, asNum = false): ColumnSpec => ({
             header: label,
@@ -1411,7 +1487,9 @@ export default function NetValuesManagementPage() {
                         <thead>
                         <tr>
                             {t.columns.map(c => (
-                                <th key={c.header} style={{ ...STYLES.tableCell, ...STYLES.tableHeader, whiteSpace: 'nowrap' }}>{c.header}</th>
+                                <th key={c.header} style={{ ...STYLES.tableCell, ...STYLES.tableHeader, whiteSpace: 'nowrap' }}>
+                                    {c.headerNode ?? c.header}
+                                </th>
                             ))}
                         </tr>
                         </thead>

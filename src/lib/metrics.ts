@@ -100,6 +100,30 @@ export function periodReturn(points: MetricPoint[], daysAgo: number): number | n
     return latest.value / prev.value - 1;
 }
 
+/** 任意 [start, end] 窗口的收益率；start 取"该日期或之后"最近的样本，end 取"该日期或之前"
+ *  最近的样本（自动避开非交易日 / 数据缺失日）。返回实际匹配到的两端日期。 */
+export function returnBetween(
+    points: MetricPoint[],
+    startStr: string,
+    endStr: string,
+): { value: number; matchedStart: string; matchedEnd: string } | null {
+    if (points.length < 2) return null;
+    const start = new Date(startStr);
+    const end = new Date(endStr);
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) return null;
+    if (start.getTime() > end.getTime()) return null;
+    const prev = findAtOrAfter(points, start);
+    const last = findAtOrBefore(points, end);
+    if (!prev || !last) return null;
+    if (prev.dateStr === last.dateStr) return null;
+    if (prev.value <= 0) return null;
+    return {
+        value: last.value / prev.value - 1,
+        matchedStart: prev.dateStr,
+        matchedEnd: last.dateStr,
+    };
+}
+
 export function ytdReturn(points: MetricPoint[]): number | null {
     if (points.length < 2) return null;
     const latest = points[points.length - 1];
