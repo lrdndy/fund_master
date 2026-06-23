@@ -101,7 +101,12 @@ export function periodReturn(points: MetricPoint[], daysAgo: number): number | n
 }
 
 /** 任意 [start, end] 窗口的收益率；start 取"该日期或之后"最近的样本，end 取"该日期或之前"
- *  最近的样本（自动避开非交易日 / 数据缺失日）。返回实际匹配到的两端日期。 */
+ *  最近的样本（自动避开非交易日 / 数据缺失日）。返回实际匹配到的两端日期。
+ *
+ *  边界：用户窗口完全落在数据空档时（窗口前后都有样本，窗口内没有），
+ *  findAtOrAfter 会跳到窗口之后的样本，findAtOrBefore 会回到窗口之前的样本，
+ *  此时 prev.date > last.date——结果毫无意义、且 sub 字符串会显示倒序日期，
+ *  必须显式返回 null。 */
 export function returnBetween(
     points: MetricPoint[],
     startStr: string,
@@ -115,6 +120,7 @@ export function returnBetween(
     const prev = findAtOrAfter(points, start);
     const last = findAtOrBefore(points, end);
     if (!prev || !last) return null;
+    if (prev.date.getTime() > last.date.getTime()) return null;  // 窗口落在数据空档
     if (prev.dateStr === last.dateStr) return null;
     if (prev.value <= 0) return null;
     return {
