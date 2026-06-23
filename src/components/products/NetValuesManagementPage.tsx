@@ -32,12 +32,15 @@ import type {
 } from '@/lib/types';
 
 // 类型定义
-interface ValidNetValue { date: string; value: number }
+// value = 累计单位净值（旧字段保留供图表/相关性等用）；unitValue = 单位净值（指标表的收益用它算）
+// 指数没有"单位净值"概念，unitValue 与 value 取同一个 close_price
+interface ValidNetValue { date: string; value: number; unitValue: number }
 interface ChartProductData {
     id: number;
+    code?: string;          // 6 位产品代码；指数没有
     name: string;
-    isBenchmark: boolean;  // 用作基准（虚线展示）
-    isIndex?: boolean;     // 区分：来自基准指数表，而非产品
+    isBenchmark: boolean;   // 用作基准（虚线展示）
+    isIndex?: boolean;      // 区分：来自基准指数表，而非产品
     netValues: ValidNetValue[];
     drawdownValues: { date: string; value: number }[];
 }
@@ -46,6 +49,7 @@ type TimeRangeType = 'inception' | 'ytd' | '1m' | '3m' | '6m' | '1y' | 'custom';
 
 interface ProductIndicator {
     id: number;
+    code?: string;
     name: string;
     isBenchmark: boolean;
     isIndex?: boolean;
@@ -96,10 +100,13 @@ const calculateMaxDrawdown = (netValues: ValidNetValue[]) => {
 };
 
 // 金融指标计算（公式统一走 lib/metrics.ts：252 交易日年化 + 2.5% 无风险利率）
+// 指标表的收益一律按"单位净值"算（不再用累计净值），口径反映管理人创造的真实业绩，
+// 不被分红派息再投资的复利效应放大或缩小
 const generateProductIndicators = (list: ChartProductData[]): ProductIndicator[] => list.map(item => {
-    const pts = normalizePoints(item.netValues);
+    const pts = normalizePoints(item.netValues.map(nv => ({ date: nv.date, value: nv.unitValue })));
     return {
         id: item.id,
+        code: item.code,
         name: item.name,
         isBenchmark: item.isBenchmark,
         isIndex: item.isIndex,
@@ -477,16 +484,25 @@ export default function NetValuesManagementPage() {
             setChartLoading(true);
             const list: ChartProductData[] = [];
 
-            // 产品净值 -> ValidNetValue[]
+            // 产品净值 -> ValidNetValue[]；value = 累计净值（图表/相关性用），unitValue = 单位净值（指标表收益用）
+            // 单位净值若缺失就 fallback 到累计净值，保证下游计算不会 NaN
             const toValid = (rs: ProductNetValue[]): ValidNetValue[] => (rs ?? [])
                 .filter(r => r.net_value_date && r.cumulative_unit_net_value != null && !isNaN(+r.cumulative_unit_net_value))
-                .map(r => ({ date: r.net_value_date.trim(), value: +r.cumulative_unit_net_value! }))
+                .map(r => {
+                    const cum = +r.cumulative_unit_net_value!;
+                    const unitRaw = (r as { unit_net_value?: number | string | null }).unit_net_value;
+                    const unit = unitRaw != null && unitRaw !== '' && !isNaN(+unitRaw) ? +unitRaw : cum;
+                    return { date: r.net_value_date.trim(), value: cum, unitValue: unit };
+                })
                 .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-            // 指数日 K -> ValidNetValue[]（用 close_price 当净值）
+            // 指数日 K -> ValidNetValue[]（指数没有"单位/累计"之分，unitValue 与 value 同取 close_price）
             const toValidIdx = (rs: BenchmarkNetValuePoint[]): ValidNetValue[] => (rs ?? [])
                 .filter(r => r.net_value_date && r.close_price != null && !isNaN(+r.close_price))
-                .map(r => ({ date: r.net_value_date.trim(), value: +r.close_price }))
+                .map(r => {
+                    const v = +r.close_price;
+                    return { date: r.net_value_date.trim(), value: v, unitValue: v };
+                })
                 .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
             const pushOrWarn = (label: string, entry: ChartProductData) => {
@@ -503,6 +519,7 @@ export default function NetValuesManagementPage() {
                 const nv = filterNetValuesByTime(toValid(res.results ?? []));
                 pushOrWarn(selectedBenchmark.product_name || `产品${selectedBenchmark.id}`, {
                     id: selectedBenchmark.id,
+                    code: selectedBenchmark.product_code,
                     name: selectedBenchmark.product_name || `产品${selectedBenchmark.id}`,
                     isBenchmark: true,
                     netValues: nv,
@@ -516,6 +533,7 @@ export default function NetValuesManagementPage() {
                 const nv = filterNetValuesByTime(toValid(res.results ?? []));
                 pushOrWarn(p.product_name || `产品${p.id}`, {
                     id: p.id,
+                    code: p.product_code,
                     name: p.product_name || `产品${p.id}`,
                     isBenchmark: false,
                     netValues: nv,
@@ -572,11 +590,12 @@ export default function NetValuesManagementPage() {
         return starts.reduce((a, b) => (a > b ? a : b));
     };
 
-    // 图例/表格显示用：指数加 [指数]、基准产品加 [基准]
+    // 图例/表格显示用：产品带 6 位代码后缀；指数加 [指数]、基准产品加 [基准]
     const displayName = (p: ChartProductData | ProductIndicator): string => {
+        const codeSuffix = p.code ? ` (${p.code})` : '';
         if (p.isIndex) return `[指数] ${p.name}`;
-        if (p.isBenchmark) return `[基准] ${p.name}`;
-        return p.name;
+        if (p.isBenchmark) return `[基准] ${p.name}${codeSuffix}`;
+        return `${p.name}${codeSuffix}`;
     };
 
     // 渲染净值图表（归一化到起点=1，便于产品净值与指数点位同框对比）
@@ -914,8 +933,11 @@ export default function NetValuesManagementPage() {
     const calcExcessFor = (chartItem: ChartProductData | undefined, baseItem: ChartProductData, key: string): number | null => {
         if (!chartItem || baseItem.id === chartItem.id) return null;
         const alT0 = chartProductList.length > 1 ? computeAlignT0(chartProductList) : undefined;
-        const iVis = alT0 ? chartItem.netValues.filter(nv => nv.date >= alT0) : chartItem.netValues;
-        const bVis = alT0 ? baseItem.netValues.filter(nv => nv.date >= alT0) : baseItem.netValues;
+        // 指标表的超额一律按"单位净值"算（与表里其他收益口径一致）；指数没有单位净值，unitValue 等于 value，照样兼容
+        const iVis = (alT0 ? chartItem.netValues.filter(nv => nv.date >= alT0) : chartItem.netValues)
+            .map(nv => ({ date: nv.date, value: nv.unitValue }));
+        const bVis = (alT0 ? baseItem.netValues.filter(nv => nv.date >= alT0) : baseItem.netValues)
+            .map(nv => ({ date: nv.date, value: nv.unitValue }));
         const iStart = iVis.find(nv => nv.value > 0)?.value || 1;
         const bStart = bVis.find(nv => nv.value > 0)?.value || 1;
         const bNorm = new Map(bVis.filter(nv => nv.value > 0).map(nv => [nv.date, nv.value / bStart]));
@@ -1014,7 +1036,7 @@ export default function NetValuesManagementPage() {
             header: '单位净值',
             cellText: (_, ci) => {
                 const last = ci?.netValues[ci.netValues.length - 1];
-                return last ? last.value.toFixed(4) : '—';
+                return last ? last.unitValue.toFixed(4) : '—';
             },
             cellSub: (_, ci) => latestDateSub(ci),
         });
@@ -1029,11 +1051,13 @@ export default function NetValuesManagementPage() {
 
         type PeriodKey = 'r1w' | 'r1m' | 'r3m' | 'r1y';
         // 周期列：用户在表头改了 periodWindows 就走 returnBetween；区间没填 / 无效就退到 bundle 里的默认值
+        // 收益按"单位净值"算（与 bundle 口径保持一致）
         const computeWindowed = (ci: ChartProductData | undefined, key: string, fallback: number | null) => {
             if (!ci) return { value: fallback, sub: null as string | null };
             const win = periodWindows[key];
             if (!win || !win.start || !win.end) return { value: fallback, sub: null };
-            const r = returnBetween(normalizePoints(ci.netValues), win.start, win.end);
+            const unitPts = normalizePoints(ci.netValues.map(nv => ({ date: nv.date, value: nv.unitValue })));
+            const r = returnBetween(unitPts, win.start, win.end);
             if (!r) return { value: null, sub: '区间无样本' };
             return { value: r.value, sub: `${r.matchedStart} ~ ${r.matchedEnd}` };
         };
