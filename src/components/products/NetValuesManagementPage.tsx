@@ -270,6 +270,11 @@ export default function NetValuesManagementPage() {
 
     // 产品指标表里 r1w/r1m/r3m/r1y/rYtd 列的可调时间窗口：默认 today-N → today，
     // 用户改了 input 就走新区间重算（自动 snap 到最近的有效净值日，跳过非交易日）
+    // 产品行自定义顺序：只对"非基准 / 非指数"产品生效；id 列表代表用户拖出来的展示顺序，
+    // 没在列表里的产品按 chartProductList 原始顺序追加在后。基准/指数行始终保留在表尾。
+    const [productOrder, setProductOrder] = useState<number[]>([]);
+    const [draggingId, setDraggingId] = useState<number | null>(null);
+
     const [periodWindows, setPeriodWindows] = useState<Record<string, { start: string; end: string }>>(() => {
         const today = new Date();
         const todayStr = today.toISOString().split('T')[0];
@@ -1000,13 +1005,18 @@ export default function NetValuesManagementPage() {
             cellSub: () => null,
             isName: true,
         });
+        // 单位净值 / 累计净值 cell 下方加日期小字：标注这条净值是哪天的（每行的"最新"可能不一样，便于发现数据滞后）
+        const latestDateSub = (ci: ChartProductData | undefined): string | null => {
+            const last = ci?.netValues[ci.netValues.length - 1];
+            return last ? last.date : null;
+        };
         cols.push({
             header: '单位净值',
             cellText: (_, ci) => {
                 const last = ci?.netValues[ci.netValues.length - 1];
                 return last ? last.value.toFixed(4) : '—';
             },
-            cellSub: () => null,
+            cellSub: (_, ci) => latestDateSub(ci),
         });
         cols.push({
             header: '累计净值',
@@ -1014,7 +1024,7 @@ export default function NetValuesManagementPage() {
                 const last = ci?.netValues[ci.netValues.length - 1];
                 return last ? last.value.toFixed(4) : '—';
             },
-            cellSub: () => null,
+            cellSub: (_, ci) => latestDateSub(ci),
         });
 
         type PeriodKey = 'r1w' | 'r1m' | 'r3m' | 'r1y';
@@ -1112,7 +1122,43 @@ export default function NetValuesManagementPage() {
     // 多基准切多表：每个基准独占一张表，最后一行 = 该基准本身；列数与单基准时一致
     // 避免一张大表横向拉得过宽（一张大表里 N × 6 列超额会很难看）
     const indicatorByItemId = new Map(productIndicators.map(ind => [ind.id, ind]));
-    const productItems = chartProductList.filter(p => !p.isBenchmark && !p.isIndex);
+    const rawProductItems = chartProductList.filter(p => !p.isBenchmark && !p.isIndex);
+    // 按 productOrder 排：在列表里的先按记录顺序；剩下的按 chartProductList 原顺序追加
+    const productItems = (() => {
+        if (productOrder.length === 0) return rawProductItems;
+        const byId = new Map(rawProductItems.map(p => [p.id, p]));
+        const ordered: ChartProductData[] = [];
+        const seen = new Set<number>();
+        for (const id of productOrder) {
+            const p = byId.get(id);
+            if (p) { ordered.push(p); seen.add(id); }
+        }
+        for (const p of rawProductItems) {
+            if (!seen.has(p.id)) ordered.push(p);
+        }
+        return ordered;
+    })();
+
+    // 拖拽：把 fromId 拖到 toId 之前；只在产品行之间生效，benchmark/index 不参与
+    const handleRowDrop = (toId: number) => {
+        if (draggingId === null || draggingId === toId) {
+            setDraggingId(null);
+            return;
+        }
+        // 用当前展示顺序作为基准；缺失的按 rawProductItems 追加
+        const base = productItems.map(p => p.id);
+        const fromIdx = base.indexOf(draggingId);
+        const toIdx = base.indexOf(toId);
+        if (fromIdx < 0 || toIdx < 0) {
+            setDraggingId(null);
+            return;
+        }
+        const next = [...base];
+        const [moved] = next.splice(fromIdx, 1);
+        next.splice(toIdx, 0, moved);
+        setProductOrder(next);
+        setDraggingId(null);
+    };
     const indicatorTables: Array<{ base: ChartProductData | null; rows: ChartProductData[]; columns: ColumnSpec[] }> =
         excessBases.length > 0
             ? excessBases.map(base => ({
@@ -1497,21 +1543,39 @@ export default function NetValuesManagementPage() {
                         {t.rows.map(ci => {
                             const item = indicatorByItemId.get(ci.id);
                             if (!item) return null;
-                            const rowStyle = (ci.isBenchmark || ci.isIndex) ? STYLES.benchmarkRow : undefined;
+                            const isBenchRow = ci.isBenchmark || ci.isIndex;
+                            const rowStyle: CSSProperties = {
+                                ...(isBenchRow ? STYLES.benchmarkRow : {}),
+                                ...(draggingId === ci.id ? { opacity: 0.4 } : {}),
+                                cursor: !isBenchRow ? 'move' : 'default',
+                            };
+                            const dragProps = !isBenchRow ? {
+                                draggable: true,
+                                onDragStart: () => setDraggingId(ci.id),
+                                onDragOver: (e: React.DragEvent) => { e.preventDefault(); },
+                                onDrop: (e: React.DragEvent) => { e.preventDefault(); handleRowDrop(ci.id); },
+                                onDragEnd: () => setDraggingId(null),
+                            } : {};
                             return (
-                                <tr key={ci.id} style={rowStyle}>
+                                <tr key={ci.id} style={rowStyle} {...dragProps}>
                                     {t.columns.map(c => {
                                         const cellStyleExtra = c.cellStyle ? c.cellStyle(item, ci) : {};
                                         const text = c.cellText(item, ci);
                                         const sub = c.cellSub(item, ci);
                                         return (
                                             <td key={c.header} style={{ ...STYLES.tableCell, ...cellStyleExtra }}>
-                                                {c.isName
-                                                    ? (item.isIndex || item.id <= 0
-                                                        ? text
-                                                        : <a href={`/products/${item.id}`} target="_blank" rel="noopener noreferrer"
-                                                              style={{ color: 'inherit', textDecoration: 'none' }}>{text}</a>)
-                                                    : text}
+                                                {c.isName ? (
+                                                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                                                        {/* 拖拽手柄：只在产品行展示，提示这行可以拖；基准/指数行无 */}
+                                                        {!isBenchRow && (
+                                                            <span style={{ color: '#9ca3af', fontSize: 12, userSelect: 'none' }} title="拖动调整顺序">⋮⋮</span>
+                                                        )}
+                                                        {item.isIndex || item.id <= 0
+                                                            ? text
+                                                            : <a href={`/products/${item.id}`} target="_blank" rel="noopener noreferrer"
+                                                                  style={{ color: 'inherit', textDecoration: 'none' }}>{text}</a>}
+                                                    </span>
+                                                ) : text}
                                                 <SubLabel text={sub} />
                                             </td>
                                         );
