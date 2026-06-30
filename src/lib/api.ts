@@ -94,6 +94,12 @@ export const productApi = {
             params, responseType: 'blob'
         });
         return { blob: response.data, fileName: response.headers['content-disposition'] };
+    },
+    clearNetValues: async (productId: number): Promise<{ message: string; deleted_count: number }> => {
+        const response = await api.delete<{ message: string; deleted_count: number }>(
+            `/products/${productId}/clear_net_values/`,
+        );
+        return response.data;
     }
 };
 
