@@ -274,6 +274,31 @@ export default function ProductNetValueManager({ initialProductId }: ProductNetV
         }
     };
 
+    const [clearing, setClearing] = useState(false);
+    const handleClearAllNetValues = async () => {
+        if (!product) return;
+        const ok = window.confirm(
+            `确认清空「${product.product_name}」的全部净值？\n` +
+            `共 ${totalCount} 条，清空后不可恢复！\n` +
+            `（再次确认才执行）`
+        );
+        if (!ok) return;
+        if (!window.confirm('再次确认：真的要清空全部净值？')) return;
+        setClearing(true);
+        try {
+            const res = await productApi.clearNetValues(product.id);
+            setOperateTip({ type: 'success', message: res.message });
+            setCurrentPage(1);
+            await fetchNetValueList(product.id);
+        } catch (err: unknown) {
+            const errorMsg = getErrorMessage(err);
+            setOperateTip({ type: 'error', message: errorMsg || '清空净值失败' });
+            console.error('清空失败：', err);
+        } finally {
+            setClearing(false);
+        }
+    };
+
     const closeOperateTip = () => {
         setOperateTip(undefined);
     };
@@ -312,13 +337,24 @@ export default function ProductNetValueManager({ initialProductId }: ProductNetV
                     {product.product_name} - 净值明细（共{totalCount}条{(startDate || endDate || dateKeyword.trim()) && ' · 已筛选'}）
                 </h2>
                 {hasWritePermission && (
-                    <button
-                        type="button"
-                        onClick={handleAddModalOpen}
-                        className="bg-green-600 text-white px-4 py-2 rounded-md text-sm hover:bg-green-700 transition-colors"
-                    >
-                        新增净值
-                    </button>
+                    <div className="flex items-center gap-2">
+                        <button
+                            type="button"
+                            onClick={handleAddModalOpen}
+                            className="bg-green-600 text-white px-4 py-2 rounded-md text-sm hover:bg-green-700 transition-colors"
+                        >
+                            新增净值
+                        </button>
+                        <button
+                            type="button"
+                            onClick={handleClearAllNetValues}
+                            disabled={clearing || totalCount === 0}
+                            className="bg-red-600 text-white px-4 py-2 rounded-md text-sm hover:bg-red-700 transition-colors disabled:bg-red-300 disabled:cursor-not-allowed"
+                            title={totalCount === 0 ? '当前产品没有净值数据' : '清空该产品的全部净值'}
+                        >
+                            {clearing ? '清空中…' : '清净值'}
+                        </button>
+                    </div>
                 )}
             </div>
 
