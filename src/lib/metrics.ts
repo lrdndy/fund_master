@@ -15,6 +15,7 @@ export interface MetricBundle {
     r1w: number | null;
     r1m: number | null;
     r3m: number | null;
+    r6m: number | null;
     r1y: number | null;
     rYtd: number | null;
     mdd: number | null;
@@ -292,6 +293,7 @@ export function computeBundle(
         r1w: periodReturn(allPoints, 7),
         r1m: periodReturn(allPoints, 30),
         r3m: periodReturn(allPoints, 90),
+        r6m: periodReturn(allPoints, 180),
         r1y: periodReturn(allPoints, 365),
         rYtd: ytdReturn(allPoints),
         mdd: maxDrawdown(allPoints),
