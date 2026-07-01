@@ -91,6 +91,67 @@ export function findAtOrAfter(points: MetricPoint[], target: Date): MetricPoint 
     return ans >= 0 ? points[ans] : null;
 }
 
+/** 计算复权净值序列（分红再投资口径），暂不考虑份额拆分/分红明细
+ *  公式：Pt = (1 + 净值涨跌幅) * Pt-1；涨跌幅 = (Lt - Lt-1) / St-1
+ *  L = 累计净值, S = 单位净值。P0 = S0（起点等于单位净值）
+ *
+ *  为何要复权：分红除权日 St 会大幅下跌，直接用单位净值算收益会错报为暴跌，
+ *  但 (Lt - Lt-1) 依然反映真实收益（累计净值包含分红），因此复权序列在分红日保持连续。
+ *  副产品：suspiciousDays 标出"单位净值一日跌幅超阈值"的日期，方便人工核对。
+ */
+export interface AdjustedSeriesResult {
+    points: MetricPoint[];
+    /** 单位净值一日跌幅超阈值的日期（怀疑当日分红/拆分） */
+    suspiciousDays: Array<{ date: string; unitDrop: number }>;
+}
+
+export function computeAdjustedSeries(
+    raw: Array<{ date: string; unitValue: number; cumValue: number }>,
+    suspiciousDropThreshold = 0.08,
+): AdjustedSeriesResult {
+    if (raw.length === 0) return { points: [], suspiciousDays: [] };
+    // 按日期升序拷贝一份，避免依赖外部顺序
+    const sorted = [...raw].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    const out: MetricPoint[] = [];
+    const suspicious: Array<{ date: string; unitDrop: number }> = [];
+    const first = sorted[0];
+    let prevS = first.unitValue;
+    let prevL = first.cumValue;
+    let prevP = first.unitValue > 0 ? first.unitValue : first.cumValue;
+    const firstDate = new Date(first.date);
+    if (!isNaN(firstDate.getTime()) && prevP > 0) {
+        out.push({ date: firstDate, dateStr: first.date, value: prevP });
+    }
+    for (let i = 1; i < sorted.length; i++) {
+        const p = sorted[i];
+        const d = new Date(p.date);
+        if (isNaN(d.getTime())) continue;
+
+        // 涨跌幅 = (L_t - L_(t-1)) / S_(t-1)；S 缺失退化到 L
+        let ret = 0;
+        if (prevS > 0) ret = (p.cumValue - prevL) / prevS;
+        else if (prevL > 0) ret = (p.cumValue - prevL) / prevL;
+
+        // 单位净值一日跌幅超阈值时打标记（怀疑分红），复权公式已自动纠正，只是记录
+        if (prevS > 0 && p.unitValue > 0) {
+            const unitRet = p.unitValue / prevS - 1;
+            if (unitRet < -suspiciousDropThreshold) {
+                suspicious.push({ date: p.date, unitDrop: unitRet });
+            }
+        }
+
+        const newP = prevP * (1 + ret);
+        if (newP > 0 && Number.isFinite(newP)) {
+            out.push({ date: d, dateStr: p.date, value: newP });
+            prevP = newP;
+        }
+        prevS = p.unitValue;
+        prevL = p.cumValue;
+    }
+    return { points: out, suspiciousDays: suspicious };
+}
+
+
 export function periodReturn(points: MetricPoint[], daysAgo: number): number | null {
     if (points.length < 2) return null;
     const latest = points[points.length - 1];

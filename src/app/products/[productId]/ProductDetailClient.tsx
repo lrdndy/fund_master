@@ -4,6 +4,7 @@ import { productApi, downloadUtils, netValueApi, benchmarkApi } from '@/lib/api'
 import NetValueChart, { NetValueSeries } from '@/components/products/NetValueChart';
 import ProductMetrics, { NamedSeries } from '@/components/products/ProductMetrics';
 import { Product, ProductNetValue, CustomTag, BenchmarkIndex, BenchmarkNetValuePoint } from '@/lib/types';
+import { computeAdjustedSeries } from '@/lib/metrics';
 import { notFound } from 'next/navigation';
 import ProductNetValueManager from "@/components/products/ProductNetValueManager";
 import useProductTags from '@/hooks/useProductTags';
@@ -86,6 +87,9 @@ export default function ProductDetailClient({ initialProductId }: ProductDetailC
     // 超额收益叠加：在净值曲线图叠加'产品相对某基准的超额'（次坐标轴虚线）
     const [showExcess, setShowExcess] = useState(false);
     const [excessOnly, setExcessOnly] = useState(false); // 仅显示超额曲线：隐藏累计净值主线，超额走主轴实线加粗
+    // 复权净值：分红除权日 单位净值 会大跌，直接画会误报；切到"复权净值"用 Pt=(1+涨跌幅)Pt-1，
+    // 涨跌幅 = (Lt-Lt-1)/St-1，序列在分红日保持连续
+    const [showAdjusted, setShowAdjusted] = useState(false);
     // 注：之前用 excessBenchmarkId 单选一个基准当 base，现在改成所有选中基准自动展开（产品 × 每个基准画一条线）
 
     // 辅助：从 CustomTag[] 提取 ID 数组
@@ -426,15 +430,46 @@ export default function ProductDetailClient({ initialProductId }: ProductDetailC
 
     const filteredChartData = getFilteredChartData();
 
-    // 产品净值序列：以累计净值作为画图与指标的基础
-    const productSeriesPoints = filteredChartData
-        .filter((item): item is ProductNetValue & { cumulative_unit_net_value: number } =>
-            item.cumulative_unit_net_value !== null && item.cumulative_unit_net_value !== undefined,
-        )
-        .map(item => ({
-            date: item.net_value_date || '',
-            value: Number(item.cumulative_unit_net_value),
-        }));
+    // 产品净值序列：默认用累计净值画图；showAdjusted 开启时改画复权净值（分红日不再假暴跌）
+    const productSeriesPoints = (() => {
+        if (showAdjusted) {
+            const raw = filteredChartData
+                .filter(item =>
+                    item.cumulative_unit_net_value !== null && item.cumulative_unit_net_value !== undefined
+                    && item.net_value !== null && item.net_value !== undefined
+                    && item.net_value_date,
+                )
+                .map(item => ({
+                    date: item.net_value_date!,
+                    unitValue: Number(item.net_value),
+                    cumValue: Number(item.cumulative_unit_net_value),
+                }));
+            return computeAdjustedSeries(raw).points.map(p => ({ date: p.dateStr, value: p.value }));
+        }
+        return filteredChartData
+            .filter((item): item is ProductNetValue & { cumulative_unit_net_value: number } =>
+                item.cumulative_unit_net_value !== null && item.cumulative_unit_net_value !== undefined,
+            )
+            .map(item => ({
+                date: item.net_value_date || '',
+                value: Number(item.cumulative_unit_net_value),
+            }));
+    })();
+    // 复权计算过程中标记的分红嫌疑日（单位净值一日跌幅 > 8%），提示用户核对
+    const adjustedSuspiciousDays = showAdjusted ? (() => {
+        const raw = filteredChartData
+            .filter(item =>
+                item.cumulative_unit_net_value !== null && item.cumulative_unit_net_value !== undefined
+                && item.net_value !== null && item.net_value !== undefined
+                && item.net_value_date,
+            )
+            .map(item => ({
+                date: item.net_value_date!,
+                unitValue: Number(item.net_value),
+                cumValue: Number(item.cumulative_unit_net_value),
+            }));
+        return computeAdjustedSeries(raw).suspiciousDays;
+    })() : [];
 
     // 选中基准的序列：按当前日期范围裁切，并按需归一化（与产品一起画时）
     const buildBenchmarkPoints = (raw: BenchmarkNetValuePoint[]): Array<{ date: string; value: number }> => {
@@ -450,7 +485,7 @@ export default function ProductDetailClient({ initialProductId }: ProductDetailC
     };
 
     const chartSeries: NetValueSeries[] = [
-        { name: `${product.product_name} 累计净值`, points: productSeriesPoints },
+        { name: `${product.product_name} ${showAdjusted ? '复权净值' : '累计净值'}`, points: productSeriesPoints },
         ...selectedBenchmarkIds
             .filter(id => benchmarkSeriesMap[id])
             .map(id => {
@@ -880,28 +915,52 @@ export default function ProductDetailClient({ initialProductId }: ProductDetailC
                     )}
                 </div>
 
-                {hasBenchmark && (
-                    <div className="flex items-center flex-wrap gap-3 mb-2 text-sm">
-                        <label className="flex items-center gap-1.5 text-gray-700 cursor-pointer">
-                            <input type="checkbox" checked={showExcess} onChange={e => setShowExcess(e.target.checked)} />
-                            叠加超额收益（产品相对每个基准画一条，次坐标轴虚线）
-                        </label>
-                        {showExcess && (
+                <div className="flex items-center flex-wrap gap-3 mb-2 text-sm">
+                    {/* 复权净值按钮：切换后主曲线改画 Pt=(1+涨跌幅)Pt-1 序列，分红除权日不再假暴跌 */}
+                    <button
+                        type="button"
+                        onClick={() => setShowAdjusted(v => !v)}
+                        className={`px-3 py-1.5 rounded text-sm border transition ${
+                            showAdjusted
+                                ? 'bg-indigo-600 text-white border-indigo-600'
+                                : 'bg-white text-indigo-600 border-indigo-300 hover:bg-indigo-50'
+                        }`}
+                        title={
+                            showAdjusted
+                                ? '当前显示：复权净值（分红再投资口径）；点击切回累计净值'
+                                : '当前显示：累计净值；点击切到复权净值（自动纠正分红除权日的净值跳降）'
+                        }
+                    >
+                        {showAdjusted ? '✓ 复权净值' : '算复权净值'}
+                    </button>
+                    {showAdjusted && adjustedSuspiciousDays.length > 0 && (
+                        <span className="text-xs text-orange-600" title={adjustedSuspiciousDays.map(d => `${d.date}: ${(d.unitDrop*100).toFixed(2)}%`).join('\n')}>
+                            检测到 {adjustedSuspiciousDays.length} 个疑似分红日（单位净值日跌 &gt; 8%）
+                        </span>
+                    )}
+                    {hasBenchmark && (
+                        <>
                             <label className="flex items-center gap-1.5 text-gray-700 cursor-pointer">
-                                <input type="checkbox" checked={excessOnly} onChange={e => setExcessOnly(e.target.checked)} />
-                                仅显示超额曲线（隐藏累计净值主线）
+                                <input type="checkbox" checked={showExcess} onChange={e => setShowExcess(e.target.checked)} />
+                                叠加超额收益（产品相对每个基准画一条，次坐标轴虚线）
                             </label>
-                        )}
-                        {showExcess && selectedBenchmarkIds.length > 1 && (
-                            <span className="text-xs text-gray-500 ml-auto">已展开 {selectedBenchmarkIds.length} 条产品 vs 基准 超额线</span>
-                        )}
-                    </div>
-                )}
+                            {showExcess && (
+                                <label className="flex items-center gap-1.5 text-gray-700 cursor-pointer">
+                                    <input type="checkbox" checked={excessOnly} onChange={e => setExcessOnly(e.target.checked)} />
+                                    仅显示超额曲线（隐藏累计净值主线）
+                                </label>
+                            )}
+                            {showExcess && selectedBenchmarkIds.length > 1 && (
+                                <span className="text-xs text-gray-500 ml-auto">已展开 {selectedBenchmarkIds.length} 条产品 vs 基准 超额线</span>
+                            )}
+                        </>
+                    )}
+                </div>
 
                 <NetValueChart
                     key={refreshKey}
                     series={chartSeries}
-                    title={`${product.product_name}${hasBenchmark ? ' vs 基准' : ' - 累计净值曲线'}`}
+                    title={`${product.product_name}${hasBenchmark ? ' vs 基准' : ` - ${showAdjusted ? '复权' : '累计'}净值曲线`}`}
                     loading={false}
                     normalize={hasBenchmark}
                     excessBaseNames={showExcess && hasBenchmark ? excessBaseNames : undefined}

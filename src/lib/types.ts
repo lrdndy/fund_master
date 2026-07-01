@@ -193,8 +193,11 @@ export interface Basket {
     name: string;
     description?: string | null;
     owner?: number;
+    // 按后端 product_order 排好序的 id 列表；不在 order 里的追加在尾
     product_id_list: number[];
     index_id_list: number[];
+    product_order?: number[];
+    index_order?: number[];
     is_valid: boolean;
     create_time?: string;
     update_time?: string;
@@ -205,6 +208,8 @@ export interface BasketInput {
     description?: string;
     product_ids?: number[];
     index_ids?: number[];
+    product_order?: number[];
+    index_order?: number[];
 }
 
 export interface BenchmarkNetValuePoint {
