@@ -16,6 +16,7 @@ import {
     findAtOrBefore,
     findAtOrAfter,
     returnBetween,
+    computeAdjustedSeries,
 } from '@/lib/metrics';
 import type {
     Product,
@@ -100,10 +101,15 @@ const calculateMaxDrawdown = (netValues: ValidNetValue[]) => {
 };
 
 // 金融指标计算（公式统一走 lib/metrics.ts：252 交易日年化 + 2.5% 无风险利率）
-// 指标表的收益一律按"单位净值"算（不再用累计净值），口径反映管理人创造的真实业绩，
-// 不被分红派息再投资的复利效应放大或缩小
+// 指标表的收益按"复权净值"算：直接用单位净值遇到分红除权日会误报为暴跌
+// （比如"融成水滴石穿"三个月 -32%），复权口径 Pt=(1+净值涨跌幅)Pt-1,
+// 涨跌幅=(Lt-Lt-1)/St-1，L=累计净值 S=单位净值，分红日 St 掉了但 Lt-Lt-1 仍反映真实收益，
+// 序列不会出现假暴跌
+const buildAdjustedPoints = (nvs: ValidNetValue[]): MetricPoint[] =>
+    computeAdjustedSeries(nvs.map(nv => ({ date: nv.date, unitValue: nv.unitValue, cumValue: nv.value }))).points;
+
 const generateProductIndicators = (list: ChartProductData[]): ProductIndicator[] => list.map(item => {
-    const pts = normalizePoints(item.netValues.map(nv => ({ date: nv.date, value: nv.unitValue })));
+    const pts = buildAdjustedPoints(item.netValues);
     return {
         id: item.id,
         code: item.code,
@@ -934,11 +940,11 @@ export default function NetValuesManagementPage() {
     const calcExcessFor = (chartItem: ChartProductData | undefined, baseItem: ChartProductData, key: string): number | null => {
         if (!chartItem || baseItem.id === chartItem.id) return null;
         const alT0 = chartProductList.length > 1 ? computeAlignT0(chartProductList) : undefined;
-        // 指标表的超额一律按"单位净值"算（与表里其他收益口径一致）；指数没有单位净值，unitValue 等于 value，照样兼容
-        const iVis = (alT0 ? chartItem.netValues.filter(nv => nv.date >= alT0) : chartItem.netValues)
-            .map(nv => ({ date: nv.date, value: nv.unitValue }));
-        const bVis = (alT0 ? baseItem.netValues.filter(nv => nv.date >= alT0) : baseItem.netValues)
-            .map(nv => ({ date: nv.date, value: nv.unitValue }));
+        // 超额按"复权净值"算（与表里其他收益口径一致，避开分红日误报）
+        const iAdj = buildAdjustedPoints(alT0 ? chartItem.netValues.filter(nv => nv.date >= alT0) : chartItem.netValues);
+        const bAdj = buildAdjustedPoints(alT0 ? baseItem.netValues.filter(nv => nv.date >= alT0) : baseItem.netValues);
+        const iVis = iAdj.map(p => ({ date: p.dateStr, value: p.value }));
+        const bVis = bAdj.map(p => ({ date: p.dateStr, value: p.value }));
         const iStart = iVis.find(nv => nv.value > 0)?.value || 1;
         const bStart = bVis.find(nv => nv.value > 0)?.value || 1;
         const bNorm = new Map(bVis.filter(nv => nv.value > 0).map(nv => [nv.date, nv.value / bStart]));
@@ -1052,13 +1058,13 @@ export default function NetValuesManagementPage() {
 
         type PeriodKey = 'r1w' | 'r1m' | 'r3m' | 'r1y';
         // 周期列：用户在表头改了 periodWindows 就走 returnBetween；区间没填 / 无效就退到 bundle 里的默认值
-        // 收益按"单位净值"算（与 bundle 口径保持一致）
+        // 收益按"复权净值"算（口径与 bundle 保持一致，避开分红日误报）
         const computeWindowed = (ci: ChartProductData | undefined, key: string, fallback: number | null) => {
             if (!ci) return { value: fallback, sub: null as string | null };
             const win = periodWindows[key];
             if (!win || !win.start || !win.end) return { value: fallback, sub: null };
-            const unitPts = normalizePoints(ci.netValues.map(nv => ({ date: nv.date, value: nv.unitValue })));
-            const r = returnBetween(unitPts, win.start, win.end);
+            const adjPts = buildAdjustedPoints(ci.netValues);
+            const r = returnBetween(adjPts, win.start, win.end);
             if (!r) return { value: null, sub: '区间无样本' };
             return { value: r.value, sub: `${r.matchedStart} ~ ${r.matchedEnd}` };
         };
