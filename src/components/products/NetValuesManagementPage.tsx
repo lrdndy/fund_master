@@ -238,6 +238,7 @@ export default function NetValuesManagementPage() {
         baskets, currentBaskets, currentBasketIds, toggleBasket, clearBasketSelection,
         combinedProductIds, combinedIndexIds,
         loading: basketLoading,
+        update: updateBasket,
     } = useBasket();
     const initedRef = useRef(false);
 
@@ -356,9 +357,12 @@ export default function NetValuesManagementPage() {
                 if (cIds) try { comps = prods.filter(p => JSON.parse(cIds).includes(p.id)); } catch {}
 
                 // 篮子预填：仅在两个 key 都没存（即用户从未在本页主动选过）时生效；
-                // 多选篮子合并的产品全部进入'对比'区，不预占基准位
+                // 多选篮子合并的产品全部进入'对比'区，不预占基准位；按 combinedProductIds 顺序装配
                 if (!bId && !cIds && combinedProductIds.length > 0) {
-                    const basketProds = prods.filter(p => combinedProductIds.includes(p.id));
+                    const byId = new Map(prods.map(p => [p.id, p]));
+                    const basketProds = combinedProductIds
+                        .map(id => byId.get(id))
+                        .filter((p): p is Product => !!p);
                     if (basketProds.length > 0) {
                         bench = null;
                         comps = basketProds;
@@ -895,7 +899,12 @@ export default function NetValuesManagementPage() {
     // 之后用户仍可继续追加非篮子的对象
     const applyBasket = () => {
         if (combinedProductIds.length === 0 && combinedIndexIds.length === 0) return;
-        const basketProds = filteredProducts.filter(p => combinedProductIds.includes(p.id));
+        // 按 combinedProductIds 的顺序装配（后端已按 basket.product_order 排好序），
+        // 保持用户上次拖拽出来的对比顺序；用 filter 会退化成 filteredProducts 顺序
+        const byId = new Map(filteredProducts.map(p => [p.id, p]));
+        const basketProds = combinedProductIds
+            .map(id => byId.get(id))
+            .filter((p): p is (typeof filteredProducts)[number] => !!p);
         setSelectedBenchmark(null);
         setSelectedCompares(basketProds);
         const validIdx = benchmarks.map(b => b.id);
@@ -1171,12 +1180,12 @@ export default function NetValuesManagementPage() {
     })();
 
     // 拖拽：把 fromId 拖到 toId 之前；只在产品行之间生效，benchmark/index 不参与
+    // 恰好选中 1 个 basket 时，顺便把新顺序保存到该 basket.product_order（下次再选进来自动按此排）
     const handleRowDrop = (toId: number) => {
         if (draggingId === null || draggingId === toId) {
             setDraggingId(null);
             return;
         }
-        // 用当前展示顺序作为基准；缺失的按 rawProductItems 追加
         const base = productItems.map(p => p.id);
         const fromIdx = base.indexOf(draggingId);
         const toIdx = base.indexOf(toId);
@@ -1189,6 +1198,19 @@ export default function NetValuesManagementPage() {
         next.splice(toIdx, 0, moved);
         setProductOrder(next);
         setDraggingId(null);
+
+        // 自动持久化：只有恰好选中 1 个 basket、且拖动的产品都属于该 basket 时才写回，
+        // 多篮子/散选 basket 无法归属，跳过
+        if (currentBaskets.length === 1) {
+            const basket = currentBaskets[0];
+            const basketMembers = new Set(basket.product_id_list);
+            const orderInBasket = next.filter(id => basketMembers.has(id));
+            if (orderInBasket.length > 0) {
+                updateBasket(basket.id, { product_order: orderInBasket }).catch(err => {
+                    console.warn('[basket 顺序保存失败]', err);
+                });
+            }
+        }
     };
     const indicatorTables: Array<{ base: ChartProductData | null; rows: ChartProductData[]; columns: ColumnSpec[] }> =
         excessBases.length > 0
