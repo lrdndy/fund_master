@@ -145,7 +145,7 @@ const returnTextStyle = (n: number | null): CSSProperties => {
 
 // 周期指标对应天数
 const PERIOD_DAYS: Record<string, number> = {
-    r1w: 7, r1m: 30, r3m: 90, r1y: 365,
+    r1w: 7, r1m: 30, r3m: 90, r6m: 180,
 };
 
 // 计算某个期间的实际数据起止日期
@@ -301,7 +301,7 @@ export default function NetValuesManagementPage() {
             r1w: { start: mkStart(7), end: todayStr },
             r1m: { start: mkStart(30), end: todayStr },
             r3m: { start: mkStart(90), end: todayStr },
-            r1y: { start: mkStart(365), end: todayStr },
+            r6m: { start: mkStart(180), end: todayStr },
             rYtd: { start: ytdStart, end: todayStr },
         };
     });
@@ -1065,7 +1065,7 @@ export default function NetValuesManagementPage() {
             cellSub: (_, ci) => latestDateSub(ci),
         });
 
-        type PeriodKey = 'r1w' | 'r1m' | 'r3m' | 'r1y';
+        type PeriodKey = 'r1w' | 'r1m' | 'r3m' | 'r6m';
         // 周期列：用户在表头改了 periodWindows 就走 returnBetween；区间没填 / 无效就退到 bundle 里的默认值
         // 收益按"复权净值"算（口径与 bundle 保持一致，避开分红日误报）
         const computeWindowed = (ci: ChartProductData | undefined, key: string, fallback: number | null) => {
@@ -1118,8 +1118,8 @@ export default function NetValuesManagementPage() {
         cols.push(periodCol('r1m', '近1月'));
         if (base) cols.push(excessCol('r1m', '近1月超额', base));
         cols.push(periodCol('r3m', '近三月'));
-        cols.push(periodCol('r1y', '近1年'));
-        if (base) cols.push(excessCol('r1y', '近1年超额', base));
+        cols.push(periodCol('r6m', '近半年'));
+        if (base) cols.push(excessCol('r6m', '近半年超额', base));
         cols.push(ytdCol);
         if (base) cols.push(excessCol('rYtd', 'YTD超额', base));
         cols.push({
@@ -1224,6 +1224,166 @@ export default function NetValuesManagementPage() {
                 rows: productItems,
                 columns: buildColumns(null),
             }];
+
+    // 复权导出：区分"含数据的值" vs "字符串"，Excel 里数字列存 number 才能画柱状图
+    const parsePctText = (s: string): number | null => {
+        // "-3.33%" / "+5.96%" / "—"
+        if (!s || s === '—') return null;
+        const m = s.replace(/[+,]/g, '').match(/^(-?\d+(?:\.\d+)?)%$/);
+        return m ? Number(m[1]) / 100 : null;
+    };
+
+    // 参考上传模板生成 Excel：汇总 sheet（含单元格样式 + 百分数格式）+ 图表 sheet（5 个 BarChart：近1周/1月/3月/半年/YTD）
+    const exportTableXlsx = async (base: ChartProductData | null, rows: ChartProductData[], columns: ColumnSpec[]) => {
+        const ExcelJS = (await import('exceljs')).default;
+        const wb = new ExcelJS.Workbook();
+        wb.creator = 'FundMaster';
+        wb.created = new Date();
+
+        // ============ Sheet 1: 汇总（结构 = 表格列 + 每列后跟一个 "·区间" 子列，模板同款） ============
+        const summary = wb.addWorksheet('汇总', { views: [{ state: 'frozen', xSplit: 1, ySplit: 1 }] });
+        // 每列展开成两列：值列 + 区间列（除了 名称）
+        interface FlatCol { header: string; kind: 'label' | 'value' | 'range'; sourceIdx: number }
+        const flat: FlatCol[] = [];
+        columns.forEach((c, i) => {
+            if (c.isName || c.header === '名称' || c.header === '备注') {
+                flat.push({ header: c.header, kind: 'label', sourceIdx: i });
+            } else {
+                flat.push({ header: c.header, kind: 'value', sourceIdx: i });
+                flat.push({ header: `${c.header}·区间`, kind: 'range', sourceIdx: i });
+            }
+        });
+        // 表头行
+        summary.addRow(flat.map(f => f.header));
+        const headerRow = summary.getRow(1);
+        headerRow.font = { bold: true, size: 10 };
+        headerRow.alignment = { horizontal: 'center', vertical: 'middle' };
+        headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9E1F2' } };
+        headerRow.border = { bottom: { style: 'thin', color: { argb: 'FF9BA0A5' } } };
+        headerRow.height = 22;
+
+        // 数据行
+        rows.forEach(ci => {
+            const item = indicatorByItemId.get(ci.id);
+            if (!item) return;
+            const rowVals: (string | number | null)[] = [];
+            flat.forEach(f => {
+                const col = columns[f.sourceIdx];
+                const text = col.cellText(item, ci);
+                const sub = col.cellSub(item, ci);
+                if (f.kind === 'label') {
+                    rowVals.push(text);
+                } else if (f.kind === 'value') {
+                    // 百分数列 → 存 number（0.05=5%）；夏普这种纯数字 → 存 number
+                    const asPct = parsePctText(text);
+                    if (asPct !== null) rowVals.push(asPct);
+                    else {
+                        const asNum = Number(text);
+                        rowVals.push(Number.isFinite(asNum) ? asNum : (text === '—' ? null : text));
+                    }
+                } else {
+                    rowVals.push(sub ?? '');
+                }
+            });
+            const excelRow = summary.addRow(rowVals);
+            // 值列上色 + 百分数格式；负数绿、正数红（跟前端一致）
+            flat.forEach((f, colIdx) => {
+                if (f.kind !== 'value') return;
+                const cell = excelRow.getCell(colIdx + 1);
+                const v = cell.value;
+                if (typeof v === 'number') {
+                    // 判断百分数列（原文含%）还是纯数字（夏普）
+                    const isPctCol = parsePctText(columns[f.sourceIdx].cellText(item, ci)) !== null
+                                     || columns[f.sourceIdx].header.includes('%') || Math.abs(v) < 5;
+                    cell.numFmt = isPctCol ? '0.00%' : '0.0000';
+                    if (v > 0) cell.font = { color: { argb: 'FFDC2626' } };
+                    else if (v < 0) cell.font = { color: { argb: 'FF16A34A' } };
+                }
+            });
+            // 基准 / 指数行浅灰背景
+            if (ci.isBenchmark || ci.isIndex) {
+                excelRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF9FAFB' } };
+            }
+        });
+
+        // 列宽
+        flat.forEach((f, i) => {
+            const col = summary.getColumn(i + 1);
+            if (f.kind === 'label') col.width = 28;
+            else if (f.kind === 'value') col.width = 12;
+            else col.width = 24;
+        });
+
+        // 顶部标题合并单元格
+        summary.spliceRows(1, 0, []);
+        summary.mergeCells(1, 1, 1, flat.length);
+        const titleCell = summary.getCell(1, 1);
+        titleCell.value = `产品指标汇总${base ? `（基准：${displayName(base)}）` : ''}   ·  所有收益按复权净值口径计算（分红除权日自动修正）`;
+        titleCell.font = { bold: true, size: 12, color: { argb: 'FF1E3A8A' } };
+        titleCell.alignment = { horizontal: 'left', vertical: 'middle' };
+        summary.getRow(1).height = 26;
+
+        // ============ Sheet 2: 图表（近1周/1月/3月/半年/YTD 五个柱状图） ============
+        const chartSheet = wb.addWorksheet('图表');
+        // 顶部提示行：说明用法（模板同款布局，选中任一组即可插入柱状图）
+        chartSheet.mergeCells(1, 1, 1, 15);
+        const hint = chartSheet.getCell(1, 1);
+        hint.value = '柱状图数据（按模板布局）：选中任一组"产品|指标"两列 → [插入]→[图表]→[柱状图] 一键出图。收益按复权净值口径。';
+        hint.font = { bold: true, size: 10, color: { argb: 'FF6B7280' } };
+        hint.alignment = { horizontal: 'left', vertical: 'middle' };
+        chartSheet.getRow(1).height = 22;
+        const chartPeriods: Array<{ key: string; label: string }> = [
+            { key: 'r1w', label: '近1周' },
+            { key: 'r1m', label: '近1月' },
+            { key: 'r3m', label: '近三月' },
+            { key: 'r6m', label: '近半年' },
+            { key: 'rYtd', label: '今年以来(YTD)' },
+        ];
+        // 数据区：每个周期 2 列（产品名 | 该周期收益）；第 2 行是列头，第 3..N+2 行是各产品
+        chartPeriods.forEach((cp, gi) => {
+            const startCol = gi * 3 + 1;      // 每组 2 列 + 1 空列
+            chartSheet.getCell(2, startCol).value = '产品';
+            chartSheet.getCell(2, startCol + 1).value = cp.label;
+            [chartSheet.getCell(2, startCol), chartSheet.getCell(2, startCol + 1)].forEach(c => {
+                c.font = { bold: true, size: 11 };
+                c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9E1F2' } };
+                c.alignment = { horizontal: 'center', vertical: 'middle' };
+            });
+            chartSheet.getColumn(startCol).width = 28;
+            chartSheet.getColumn(startCol + 1).width = 12;
+            // 只填产品行（跳过基准/指数，柱状图只对比产品）
+            let r = 3;
+            rows.forEach(ci => {
+                if (ci.isBenchmark || ci.isIndex) return;
+                const item = indicatorByItemId.get(ci.id);
+                if (!item) return;
+                const col = columns.find(c => c.header === cp.label);
+                if (!col) return;
+                const text = col.cellText(item, ci);
+                const num = parsePctText(text);
+                chartSheet.getCell(r, startCol).value = displayName(item);
+                const valCell = chartSheet.getCell(r, startCol + 1);
+                valCell.value = num;
+                valCell.numFmt = '0.00%';
+                r++;
+            });
+        });
+        // 注：exceljs 目前不原生支持嵌入图表；本 sheet 已按模板同款把数据摆成
+        // "产品|指标" 一组的两列布局，用户选中任一组 → [插入] → [柱状图] 就能一键出图
+
+        // 触发下载
+        const buf = await wb.xlsx.writeBuffer();
+        const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        const suffix = base ? `_vs_${displayName(base)}` : '';
+        a.download = `产品指标汇总${suffix}_${new Date().toISOString().split('T')[0]}.xlsx`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    };
 
     const exportTableCsv = (base: ChartProductData | null, rows: ChartProductData[], columns: ColumnSpec[]) => {
         const headers = columns.map(c => c.header);
@@ -1571,16 +1731,32 @@ export default function NetValuesManagementPage() {
                                     （基准：{displayName(t.base)}）
                                 </span>
                             )}
+                            {/* 复权口径标注：整张表都用复权净值算收益，避免分红除权日误报 */}
+                            <span
+                                title="所有周期收益、超额、MDD、夏普等均基于复权净值序列（Pt=(1+净值涨跌幅)Pt-1，涨跌幅=(Lt-Lt-1)/St-1）；分红除权日自动修正"
+                                style={{ fontSize: 11, color: '#0e7490', fontWeight: 500, marginLeft: 8, padding: '2px 8px', border: '1px solid #a5f3fc', borderRadius: 4, background: '#ecfeff' }}
+                            >
+                                复权口径
+                            </span>
                             <span style={{ fontSize: 12, color: '#9ca3af', fontWeight: 400, marginLeft: 8 }}>
                                 （无风险利率 {(DEFAULT_RISK_FREE * 100).toFixed(1)}%，年化按 252 交易日）
                             </span>
                         </div>
-                        <button
-                            onClick={() => exportTableCsv(t.base, t.rows, t.columns)}
-                            style={{ padding: '6px 14px', borderWidth: 1, borderStyle: 'solid', borderColor: '#3b82f6', borderRadius: 6, background: '#fff', color: '#3b82f6', cursor: 'pointer', fontSize: 13, fontWeight: 500 }}
-                        >
-                            导出 CSV
-                        </button>
+                        <div style={{ display: 'flex', gap: 8 }}>
+                            <button
+                                onClick={() => exportTableCsv(t.base, t.rows, t.columns)}
+                                style={{ padding: '6px 14px', borderWidth: 1, borderStyle: 'solid', borderColor: '#3b82f6', borderRadius: 6, background: '#fff', color: '#3b82f6', cursor: 'pointer', fontSize: 13, fontWeight: 500 }}
+                            >
+                                导出 CSV
+                            </button>
+                            <button
+                                onClick={() => exportTableXlsx(t.base, t.rows, t.columns)}
+                                style={{ padding: '6px 14px', borderWidth: 1, borderStyle: 'solid', borderColor: '#16a34a', borderRadius: 6, background: '#16a34a', color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 500 }}
+                                title="导出 Excel：含汇总（含样式）和图表数据两个 sheet；图表 sheet 按模板布局，选中数据一键插入柱状图"
+                            >
+                                导出 Excel
+                            </button>
+                        </div>
                     </div>
                     <table style={STYLES.table}>
                         <thead>
